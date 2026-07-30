@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.*
+!.env.example
+
+config/manager.secrets.toml
+
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+.DS_Store
+Thumbs.db

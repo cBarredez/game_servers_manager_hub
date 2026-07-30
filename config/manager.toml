@@ -1,0 +1,21 @@
+# Server Hub configuration. Secrets belong in manager.secrets.toml.
+
+[web]
+port = 4000
+bind_ip = "127.0.0.1"
+username = "admin"
+
+[podman]
+# Absolute or ~-relative path to the directory containing arma_server/ and
+# proyect_zomboid/ (this repo's root). Used as the build context for each
+# game template's Containerfiles.
+repos_dir = ".."
+
+[ports]
+# First host port handed out for any instance's web panel (shared across
+# every game type, since each instance publishes its frontend on its own
+# host port). Each new instance takes the next free one.
+web_base = 9000
+
+[runtime]
+timezone = "UTC"

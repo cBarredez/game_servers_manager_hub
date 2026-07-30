@@ -1,0 +1,24 @@
+{
+  "name": "server-hub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Multi-game dedicated server hosting hub: create, start/stop and list instances of arma_server and proyect_zomboid (and future game managers) via Podman",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "dev:backend": "npm run dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build:backend": "npm run build --workspace backend",
+    "build:frontend": "npm run build --workspace frontend",
+    "start": "node backend/dist/server.js",
+    "test:backend": "npm run test --workspace backend",
+    "test:frontend": "npm run test --workspace frontend",
+    "test": "npm run test:backend && npm run test:frontend"
+  }
+}
