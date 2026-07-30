@@ -13,7 +13,7 @@ export function NewInstanceModal({
   const firstTemplate = templates[0];
   const [gameType, setGameType] = useState<GameType | "">(firstTemplate?.gameType ?? "");
   const [name, setName] = useState("");
-  const [mock, setMock] = useState(true);
+  const [mock, setMock] = useState(false);
   const [memoryMb, setMemoryMb] = useState(firstTemplate?.defaultMemoryMb ?? 4096);
   const [diskGb, setDiskGb] = useState(0);
   const [busy, setBusy] = useState(false);

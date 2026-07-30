@@ -37,7 +37,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
       const result = await ctx.instances.create(
         gameType,
         name.trim(),
-        mock ?? true,
+        mock ?? false,
         resolvedMemoryMb,
         resolvedDiskGb,
       );
