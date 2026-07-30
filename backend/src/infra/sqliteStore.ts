@@ -26,6 +26,8 @@ export interface InstanceRow {
   lastCrashRestartAt: string | null;
   imageCommitApi: string | null;
   imageCommitFrontend: string | null;
+  /** Set when "Recreate from latest image" is requested while the instance is running — deferred instead of applied immediately so it doesn't interrupt connected players. Applied automatically (and cleared) the next time the instance actually starts, whether via manual start/restart, a scheduled restart, or crash recovery. */
+  pendingRecreate: boolean;
 }
 
 export interface MaintenanceLogRow {
@@ -60,6 +62,10 @@ const INSTANCE_COLUMN_MIGRATIONS: { name: string; ddl: string }[] = [
   { name: "last_crash_restart_at", ddl: "ALTER TABLE instances ADD COLUMN last_crash_restart_at TEXT" },
   { name: "image_commit_api", ddl: "ALTER TABLE instances ADD COLUMN image_commit_api TEXT" },
   { name: "image_commit_frontend", ddl: "ALTER TABLE instances ADD COLUMN image_commit_frontend TEXT" },
+  {
+    name: "pending_recreate",
+    ddl: "ALTER TABLE instances ADD COLUMN pending_recreate INTEGER NOT NULL DEFAULT 0",
+  },
 ];
 
 /**
@@ -123,7 +129,12 @@ export class SqliteStore {
   insertInstance(
     row: Omit<
       InstanceRow,
-      "createdAt" | "restartSchedule" | "lastScheduledRestartDate" | "crashRestartCount" | "lastCrashRestartAt"
+      | "createdAt"
+      | "restartSchedule"
+      | "lastScheduledRestartDate"
+      | "crashRestartCount"
+      | "lastCrashRestartAt"
+      | "pendingRecreate"
     >,
   ): void {
     this.db
@@ -191,6 +202,10 @@ export class SqliteStore {
     this.db
       .prepare(`UPDATE instances SET image_commit_api = ?, image_commit_frontend = ? WHERE id = ?`)
       .run(apiCommit, frontendCommit, id);
+  }
+
+  setPendingRecreate(id: string, pending: boolean): void {
+    this.db.prepare(`UPDATE instances SET pending_recreate = ? WHERE id = ?`).run(pending ? 1 : 0, id);
   }
 
   deleteInstance(id: string): void {
@@ -294,5 +309,6 @@ function mapInstanceRow(row: Record<string, unknown>): InstanceRow {
     lastCrashRestartAt: (row.last_crash_restart_at as string | null) ?? null,
     imageCommitApi: (row.image_commit_api as string | null) ?? null,
     imageCommitFrontend: (row.image_commit_frontend as string | null) ?? null,
+    pendingRecreate: Boolean(row.pending_recreate),
   };
 }

@@ -121,7 +121,12 @@ export function InstanceCard({
         <span className={`status-pill status-${presentation.tone}`}>{presentation.label}</span>
       </div>
 
-      {outdated && <p className="image-outdated-badge">Outdated image — a newer build is available</p>}
+      {outdated && !instance.pendingRecreate && (
+        <p className="image-outdated-badge">Outdated image — a newer build is available</p>
+      )}
+      {instance.pendingRecreate && (
+        <p className="image-outdated-badge">Update queued — applies automatically next restart</p>
+      )}
 
       {error && (
         <p role="alert" className="instance-error">
@@ -251,8 +256,16 @@ export function InstanceCard({
           </button>
         )}
         {outdated && (
-          <button disabled={busy} onClick={() => run(() => onRecreate(instance.id))}>
-            Recreate from latest image
+          <button
+            disabled={busy || instance.pendingRecreate}
+            title={
+              instance.status === "running" && !instance.pendingRecreate
+                ? "Instance is running — this queues the update instead of restarting it immediately"
+                : undefined
+            }
+            onClick={() => run(() => onRecreate(instance.id))}
+          >
+            {instance.pendingRecreate ? "Update queued" : "Recreate from latest image"}
           </button>
         )}
 

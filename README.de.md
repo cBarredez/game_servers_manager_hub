@@ -104,7 +104,13 @@ ist über den Tab **Maintenance** konfigurierbar:
   hat), "Rebuild image" baut frische Images für einen Spieltyp aus dem
   aktuell ausgecheckten Stand, und "Recreate from latest image" versetzt
   eine einzelne Instanz auf diese Images, ohne ihre Ports, Volumes oder
-  Konfiguration anzutasten. Pull und Rebuild teilen sich eine Sperre pro
+  Konfiguration anzutasten. Läuft diese Instanz gerade, wird der Wechsel
+  nicht sofort ausgeführt, sondern aufgeschoben — sie wird als
+  "Update wartet" markiert und automatisch angewendet, sobald die Instanz
+  aus irgendeinem Grund das nächste Mal stoppt und wieder startet (manueller
+  Start/Restart, ein geplanter Neustart oder eine Absturz-Wiederherstellung),
+  sodass ein Klick auf Recreate niemals selbst eine laufende Sitzung
+  unterbricht. Pull und Rebuild teilen sich eine Sperre pro
   Spieltyp, damit sie nie gleichzeitig auf demselben Arbeitsverzeichnis
   laufen. **Einschränkung**: erkennt nur committete Änderungen an den
   Geschwister-Repos, keine uncommitteten lokalen Bearbeitungen.

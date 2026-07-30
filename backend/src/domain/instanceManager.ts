@@ -31,6 +31,8 @@ export interface InstanceSummary {
   desiredState: InstanceRow["desiredState"];
   restartSchedule: string | null;
   crashRestartCount: number;
+  /** True once "Recreate from latest image" was requested while this instance was running — the swap is deferred until it next starts (manually, on schedule, or via crash recovery) instead of interrupting it immediately. */
+  pendingRecreate: boolean;
 }
 
 export interface CreateInstanceResult {
@@ -220,10 +222,14 @@ export class InstanceManager {
 
   async start(id: string): Promise<void> {
     const row = this.requireRow(id);
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
-    await podman.start(names.api);
-    await podman.start(names.frontend);
+    if (row.pendingRecreate) {
+      await this.swapToLatestImage(row);
+    } else {
+      const template = getTemplate(row.gameType);
+      const names = template.containerNames(row.slug);
+      await podman.start(names.api);
+      await podman.start(names.frontend);
+    }
     this.store.setDesiredState(id, "running");
     this.store.resetCrashRestartCount(id);
   }
@@ -239,10 +245,14 @@ export class InstanceManager {
 
   async restart(id: string): Promise<void> {
     const row = this.requireRow(id);
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
-    await podman.restart(names.api);
-    await podman.restart(names.frontend);
+    if (row.pendingRecreate) {
+      await this.swapToLatestImage(row);
+    } else {
+      const template = getTemplate(row.gameType);
+      const names = template.containerNames(row.slug);
+      await podman.restart(names.api);
+      await podman.restart(names.frontend);
+    }
     this.store.resetCrashRestartCount(id);
   }
 
@@ -254,10 +264,14 @@ export class InstanceManager {
    */
   async restartForRecovery(id: string): Promise<void> {
     const row = this.requireRow(id);
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
-    await podman.restart(names.api);
-    await podman.restart(names.frontend);
+    if (row.pendingRecreate) {
+      await this.swapToLatestImage(row);
+    } else {
+      const template = getTemplate(row.gameType);
+      const names = template.containerNames(row.slug);
+      await podman.restart(names.api);
+      await podman.restart(names.frontend);
+    }
   }
 
   /** Whether both of an instance's containers are currently running. */
@@ -271,9 +285,51 @@ export class InstanceManager {
     return apiStatus === "running" && frontendStatus === "running";
   }
 
-  /** Like restart, but swaps the containers onto whatever image currently carries the game's tag (e.g. after rebuildImages), instead of reusing the original container's image. */
+  /**
+   * Swaps the containers onto whatever image currently carries the game's
+   * tag (e.g. after rebuildImages), instead of reusing the original
+   * container's image. Requested via "Recreate from latest image": if the
+   * instance is currently running, the swap is deferred (pendingRecreate)
+   * instead of applied here, so it doesn't cut off connected players —
+   * start()/restart()/restartForRecovery() apply it automatically the next
+   * time the instance actually comes back up.
+   */
   async recreate(id: string): Promise<void> {
     const row = this.requireRow(id);
+
+    if (await this.isRunning(row)) {
+      this.store.setPendingRecreate(id, true);
+      this.store.insertMaintenanceLog({
+        scope: "instance",
+        instanceId: id,
+        gameType: row.gameType,
+        action: "recreate-queued",
+        detail: `${row.gameType} instance is running — will swap to the latest image next time it stops or restarts`,
+        success: true,
+      });
+      return;
+    }
+
+    await this.swapToLatestImage(row);
+    // recreate() always brings the containers back up (podman.run), so
+    // desiredState must reflect that — otherwise an instance that was
+    // deliberately stopped ends up running-but-still-flagged-stopped, which
+    // silently breaks auto-restart-on-crash for it afterwards (the
+    // scheduler only acts on desiredState === "running").
+    this.store.setDesiredState(id, "running");
+    this.store.resetCrashRestartCount(id);
+    this.store.insertMaintenanceLog({
+      scope: "instance",
+      instanceId: id,
+      gameType: row.gameType,
+      action: "recreate",
+      detail: `recreated from current ${row.gameType} image`,
+      success: true,
+    });
+  }
+
+  /** Low-level image swap shared by recreate() and the pendingRecreate catch-up in start()/restart()/restartForRecovery() — does not touch desiredState or crashRestartCount, since those two callers each own that decision differently. */
+  private async swapToLatestImage(row: InstanceRow): Promise<void> {
     const template = getTemplate(row.gameType);
     const ports = JSON.parse(row.ports) as PortMap;
     const configDir = path.join(this.instanceDir(row.slug), "config");
@@ -294,22 +350,8 @@ export class InstanceManager {
     await podman.run([...template.frontendRunArgs(ctx, ports), template.images.frontend]);
 
     const imageRecord = this.store.getJson<GameImagesRecord>(gameImagesKey(row.gameType));
-    this.store.setImageCommits(id, imageRecord?.apiCommit ?? null, imageRecord?.frontendCommit ?? null);
-    // recreate() always brings the containers back up (podman.run), so
-    // desiredState must reflect that — otherwise an instance that was
-    // deliberately stopped ends up running-but-still-flagged-stopped, which
-    // silently breaks auto-restart-on-crash for it afterwards (the
-    // scheduler only acts on desiredState === "running").
-    this.store.setDesiredState(id, "running");
-    this.store.resetCrashRestartCount(id);
-    this.store.insertMaintenanceLog({
-      scope: "instance",
-      instanceId: id,
-      gameType: row.gameType,
-      action: "recreate",
-      detail: `recreated from current ${row.gameType} image`,
-      success: true,
-    });
+    this.store.setImageCommits(row.id, imageRecord?.apiCommit ?? null, imageRecord?.frontendCommit ?? null);
+    this.store.setPendingRecreate(row.id, false);
   }
 
   setSchedule(id: string, time: string | null): void {
@@ -564,6 +606,7 @@ export class InstanceManager {
       desiredState: row.desiredState,
       restartSchedule: row.restartSchedule,
       crashRestartCount: row.crashRestartCount,
+      pendingRecreate: row.pendingRecreate,
     };
   }
 

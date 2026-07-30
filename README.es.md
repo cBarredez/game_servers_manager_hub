@@ -106,7 +106,13 @@ vivo bajo demanda en su lugar. Todo es configurable desde la pestaña
   alguien editó archivos a mano en el host), "Rebuild image" construye
   imágenes nuevas para un tipo de juego a partir de lo que haya actualmente
   descargado, y "Recreate from latest image" cambia una instancia concreta a
-  esas imágenes sin tocar sus puertos, volúmenes ni configuración. Pull y
+  esas imágenes sin tocar sus puertos, volúmenes ni configuración. Si esa
+  instancia está en ejecución en ese momento, el cambio se pospone en vez de
+  aplicarse de inmediato — queda marcada como "actualización en cola" y se
+  aplica automáticamente la próxima vez que la instancia se detenga y vuelva
+  a arrancar por cualquier motivo (Start/Restart manual, un reinicio
+  programado, o una recuperación ante fallo), de modo que pulsar Recreate
+  nunca interrumpe por sí mismo una sesión en curso. Pull y
   rebuild comparten un bloqueo por tipo de juego para que nunca se ejecuten
   a la vez sobre el mismo árbol de trabajo. **Limitación**: solo detecta
   cambios confirmados (committed) en los repos hermanos, no ediciones

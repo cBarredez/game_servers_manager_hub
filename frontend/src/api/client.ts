@@ -61,6 +61,7 @@ export interface InstanceSummary {
   desiredState: "running" | "stopped";
   restartSchedule: string | null;
   crashRestartCount: number;
+  pendingRecreate: boolean;
 }
 
 export const listTemplates = (): Promise<{ templates: GameTemplateInfo[] }> =>

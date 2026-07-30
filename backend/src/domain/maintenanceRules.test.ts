@@ -22,6 +22,7 @@ function makeRow(overrides: Partial<InstanceRow> = {}): InstanceRow {
     lastCrashRestartAt: null,
     imageCommitApi: null,
     imageCommitFrontend: null,
+    pendingRecreate: false,
     ...overrides,
   };
 }

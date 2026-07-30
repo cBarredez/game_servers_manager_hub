@@ -88,7 +88,12 @@ All of it is configurable from the **Maintenance** tab:
   diverged — e.g. someone hand-edited files on the host), "Rebuild image"
   builds fresh images for a game type from whatever is currently checked
   out, and "Recreate from latest image" swaps an individual instance onto
-  them without touching its ports, volumes, or config. Pull and rebuild
+  them without touching its ports, volumes, or config. If that instance is
+  currently running, the swap is deferred instead of applied immediately —
+  it's marked "update queued" and applied automatically the next time the
+  instance actually stops and starts again for any reason (manual
+  Start/Restart, a scheduled restart, or crash recovery), so clicking
+  Recreate never itself interrupts a live session. Pull and rebuild
   share a lock per game type so they can never run concurrently against the
   same working tree. **Limitation**: only detects committed changes to the
   sibling repos, not uncommitted local edits.
