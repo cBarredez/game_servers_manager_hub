@@ -249,6 +249,34 @@ button.btn-danger:hover:not(:disabled) {
   gap: 1rem;
 }
 
+.global-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.global-metric-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.global-metric-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.global-metric-value {
+  font-size: 1.15rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Instance card */
 
 .instance-card {
@@ -500,6 +528,40 @@ button.btn-danger:hover:not(:disabled) {
   border-radius: 6px;
   padding: .3rem .5rem;
   color: var(--text-primary);
+}
+
+.instance-resources-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: .6rem;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .75rem;
+}
+
+.instance-resources-form label {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+
+.instance-resources-form input {
+  font: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .3rem .5rem;
+  color: var(--text-primary);
+  width: 8rem;
+}
+
+.instance-resources-form .field-hint {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .image-outdated-badge {

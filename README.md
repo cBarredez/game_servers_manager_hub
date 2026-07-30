@@ -42,6 +42,13 @@ as the Podman build context for every instance the hub creates.
   `podman system df -v`), polled independently of the status refresh since
   it's a heavier call.
 - Search box on the dashboard to filter instances by name.
+- A global rollup above the instance grid summing CPU/RAM/disk across every
+  instance, plus a running/total count.
+- Memory and disk limits can be changed at any time from an instance's card,
+  not just at creation. Memory takes effect immediately (`podman update`
+  live-changes a running container's limit, no restart needed); disk has no
+  live equivalent in Podman, so a new value is saved and only applied the
+  next time that instance is recreated.
 - Unattended maintenance: auto-restart on crash, opt-in daily scheduled
   restarts, source-update tracking with one-click image rebuild + instance
   recreate, and daily dangling-image cleanup — see [Maintenance](#maintenance) below.

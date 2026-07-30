@@ -78,6 +78,11 @@ export const deleteInstance = (id: string, removeVolumes: boolean): Promise<{ ok
   DELETE(`/api/instances/${id}`, { removeVolumes });
 export const setInstanceSchedule = (id: string, time: string | null): Promise<{ ok: true }> =>
   PUT(`/api/instances/${id}/schedule`, { time });
+export const updateInstanceResources = (
+  id: string,
+  memoryMb: number,
+  diskGb: number,
+): Promise<{ memoryApplied: boolean }> => PUT(`/api/instances/${id}/resources`, { memoryMb, diskGb });
 
 export interface InstanceCredentials {
   username: string;

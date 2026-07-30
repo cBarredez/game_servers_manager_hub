@@ -51,6 +51,14 @@ crea el hub.
   `podman system df -v`), sondeado de forma independiente a la actualización
   de estado por ser una llamada más pesada.
 - Buscador en el panel para filtrar instancias por nombre.
+- Un resumen global sobre la cuadrícula de instancias que suma CPU/RAM/disco
+  de todas ellas, junto con un contador de en ejecución/total.
+- Los límites de memoria y disco se pueden cambiar en cualquier momento
+  desde la tarjeta de una instancia, no solo al crearla. La memoria se
+  aplica de inmediato (`podman update` cambia en vivo el límite de un
+  contenedor en ejecución, sin necesidad de reiniciar); el disco no tiene un
+  equivalente en vivo en Podman, así que el nuevo valor se guarda y solo se
+  aplica la próxima vez que se recree esa instancia.
 - Mantenimiento desatendido: reinicio automático ante fallos, reinicios
   programados diarios opcionales, seguimiento de actualizaciones del código
   fuente con reconstrucción de imagen y recreación de instancia con un clic,

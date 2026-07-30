@@ -22,6 +22,7 @@ export function InstanceCard({
   onRestart,
   onRecreate,
   onSetSchedule,
+  onUpdateResources,
   onDelete,
 }: {
   instance: InstanceSummary;
@@ -32,6 +33,7 @@ export function InstanceCard({
   onRestart: (id: string) => Promise<void>;
   onRecreate: (id: string) => Promise<void>;
   onSetSchedule: (id: string, time: string | null) => Promise<void>;
+  onUpdateResources: (id: string, memoryMb: number, diskGb: number) => Promise<{ memoryApplied: boolean }>;
   onDelete: (id: string, removeVolumes: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -40,6 +42,11 @@ export function InstanceCard({
   const [credentials, setCredentials] = useState<InstanceCredentials | null>(null);
   const [credentialsOpen, setCredentialsOpen] = useState(false);
   const [credentialsBusy, setCredentialsBusy] = useState(false);
+  const [resourcesOpen, setResourcesOpen] = useState(false);
+  const [memoryInput, setMemoryInput] = useState(instance.memoryMb);
+  const [diskInput, setDiskInput] = useState(instance.diskGb);
+  const [resourcesBusy, setResourcesBusy] = useState(false);
+  const [resourcesMessage, setResourcesMessage] = useState<string | null>(null);
   const presentation = statusPresentation(instance.status);
 
   const run = async (action: () => Promise<void>) => {
@@ -72,6 +79,32 @@ export function InstanceCard({
       }
     }
     setCredentialsOpen(true);
+  };
+
+  const toggleResources = () => {
+    if (!resourcesOpen) {
+      setMemoryInput(instance.memoryMb);
+      setDiskInput(instance.diskGb);
+      setResourcesMessage(null);
+    }
+    setResourcesOpen((open) => !open);
+  };
+
+  const saveResources = async () => {
+    setResourcesBusy(true);
+    setError(null);
+    try {
+      const result = await onUpdateResources(instance.id, memoryInput, diskInput);
+      setResourcesMessage(
+        result.memoryApplied
+          ? "Memory limit applied immediately. Disk limit will apply next time this instance is recreated."
+          : "Saved. Both limits will apply next time this instance is recreated.",
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResourcesBusy(false);
+    }
   };
 
   const portEntries = Object.entries(instance.ports).filter(([key]) => key !== "web");
@@ -163,6 +196,35 @@ export function InstanceCard({
         )}
       </label>
 
+      {resourcesOpen && (
+        <div className="instance-resources-form">
+          <label>
+            Memory (MB)
+            <input
+              type="number"
+              min={512}
+              step={512}
+              value={memoryInput}
+              onChange={(e) => setMemoryInput(Number(e.target.value))}
+            />
+          </label>
+          <label>
+            Disk (GB, 0 = unlimited)
+            <input
+              type="number"
+              min={0}
+              step={5}
+              value={diskInput}
+              onChange={(e) => setDiskInput(Number(e.target.value))}
+            />
+          </label>
+          <button className="btn-primary" disabled={resourcesBusy || memoryInput < 512} onClick={saveResources}>
+            {resourcesBusy ? "Saving…" : "Save"}
+          </button>
+          {resourcesMessage && <p className="field-hint">{resourcesMessage}</p>}
+        </div>
+      )}
+
       <div className="instance-actions">
         <a href={instance.panelUrl} target="_blank" rel="noreferrer" className="btn-primary">
           Open panel
@@ -170,6 +232,7 @@ export function InstanceCard({
         <button disabled={credentialsBusy} onClick={toggleCredentials}>
           {credentialsBusy ? "Loading…" : credentialsOpen ? "Hide credentials" : "Show credentials"}
         </button>
+        <button onClick={toggleResources}>{resourcesOpen ? "Hide limits" : "Edit limits"}</button>
         {instance.status === "running" ? (
           <>
             <button disabled={busy} onClick={() => run(() => onStop(instance.id))}>

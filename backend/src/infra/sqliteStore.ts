@@ -163,6 +163,10 @@ export class SqliteStore {
     this.db.prepare(`UPDATE instances SET desired_state = ? WHERE id = ?`).run(desiredState, id);
   }
 
+  setResourceLimits(id: string, memoryMb: number, diskGb: number): void {
+    this.db.prepare(`UPDATE instances SET memory_mb = ?, disk_gb = ? WHERE id = ?`).run(memoryMb, diskGb, id);
+  }
+
   resetCrashRestartCount(id: string): void {
     this.db.prepare(`UPDATE instances SET crash_restart_count = 0 WHERE id = ?`).run(id);
   }

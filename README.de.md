@@ -51,6 +51,14 @@ verwendet.
   `podman stats` und `podman system df -v`), unabhängig von der
   Status-Aktualisierung abgefragt, da es ein aufwendigerer Aufruf ist.
 - Suchfeld im Dashboard, um Instanzen nach Namen zu filtern.
+- Eine globale Übersicht über dem Instanzraster, die CPU/RAM/Speicherplatz
+  aller Instanzen summiert, sowie eine Zähler für laufend/gesamt.
+- Speicher- und Plattenplatzlimits lassen sich jederzeit über die Karte
+  einer Instanz ändern, nicht nur bei der Erstellung. Der Speicher wird
+  sofort wirksam (`podman update` ändert das Limit eines laufenden
+  Containers live, ohne Neustart); für Plattenplatz gibt es in Podman kein
+  Live-Äquivalent, daher wird der neue Wert gespeichert und erst beim
+  nächsten Recreate dieser Instanz angewendet.
 - Unbeaufsichtigte Wartung: automatischer Neustart bei Absturz, optionale
   tägliche geplante Neustarts, Verfolgung von Quellcode-Updates mit
   Image-Neuerstellung und Instanz-Recreate per Klick, sowie tägliche

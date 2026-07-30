@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   deleteInstance,
+  formatBytes,
   getAllMetrics,
   getImageStatus,
   listInstances,
@@ -10,6 +11,7 @@ import {
   setInstanceSchedule,
   startInstance,
   stopInstance,
+  updateInstanceResources,
   type GameTemplateInfo,
   type InstanceMetrics,
   type InstanceSummary,
@@ -19,6 +21,47 @@ import { NewInstanceModal } from "./NewInstanceModal.js";
 
 const POLL_MS = 5000;
 const METRICS_POLL_MS = 10_000;
+
+function GlobalMetrics({
+  instances,
+  metricsById,
+}: {
+  instances: InstanceSummary[];
+  metricsById: Record<string, InstanceMetrics>;
+}) {
+  const metricsList = Object.values(metricsById);
+  const runningCount = instances.filter((i) => i.status === "running").length;
+  const totalCpuPercent = metricsList.reduce((sum, m) => sum + (m.cpuPercent ?? 0), 0);
+  const withMem = metricsList.filter((m) => m.memUsedBytes !== null && m.memLimitBytes !== null);
+  const totalMemUsed = withMem.reduce((sum, m) => sum + (m.memUsedBytes ?? 0), 0);
+  const totalMemLimit = withMem.reduce((sum, m) => sum + (m.memLimitBytes ?? 0), 0);
+  const totalDiskUsed = metricsList.reduce((sum, m) => sum + m.diskUsedBytes, 0);
+
+  return (
+    <div className="global-metrics">
+      <div className="global-metric-tile">
+        <span className="global-metric-label">Instances</span>
+        <span className="global-metric-value">
+          {runningCount} / {instances.length} running
+        </span>
+      </div>
+      <div className="global-metric-tile">
+        <span className="global-metric-label">Total CPU</span>
+        <span className="global-metric-value">{totalCpuPercent.toFixed(1)}%</span>
+      </div>
+      <div className="global-metric-tile">
+        <span className="global-metric-label">Total RAM</span>
+        <span className="global-metric-value">
+          {withMem.length > 0 ? `${formatBytes(totalMemUsed)} / ${formatBytes(totalMemLimit)}` : "—"}
+        </span>
+      </div>
+      <div className="global-metric-tile">
+        <span className="global-metric-label">Total disk</span>
+        <span className="global-metric-value">{formatBytes(totalDiskUsed)}</span>
+      </div>
+    </div>
+  );
+}
 
 export function Dashboard() {
   const [instances, setInstances] = useState<InstanceSummary[]>([]);
@@ -88,6 +131,8 @@ export function Dashboard() {
 
       {error && <p role="alert">{error}</p>}
 
+      {!loading && instances.length > 0 && <GlobalMetrics instances={instances} metricsById={metricsById} />}
+
       {loading ? (
         <p className="dashboard-empty">Loading…</p>
       ) : instances.length === 0 ? (
@@ -121,6 +166,11 @@ export function Dashboard() {
               onSetSchedule={async (id, time) => {
                 await setInstanceSchedule(id, time);
                 await refresh();
+              }}
+              onUpdateResources={async (id, memoryMb, diskGb) => {
+                const result = await updateInstanceResources(id, memoryMb, diskGb);
+                await refresh();
+                return result;
               }}
               onDelete={async (id, removeVolumes) => {
                 await deleteInstance(id, removeVolumes);

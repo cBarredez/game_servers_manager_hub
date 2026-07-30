@@ -126,6 +126,16 @@ export async function removeContainer(containerName: string): Promise<void> {
   await podmanBestEffort(["rm", "-f", containerName]);
 }
 
+/** Changes a container's memory limit live — takes effect immediately, no restart needed, whether the container is running or stopped. Returns false instead of throwing if the container doesn't exist (e.g. an instance whose api container was manually removed). */
+export async function updateMemory(containerName: string, memoryMb: number): Promise<boolean> {
+  try {
+    await podman(["update", "--memory", `${memoryMb}m`, containerName]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type ContainerStatus = "running" | "stopped" | "missing";
 
 export async function containerStatus(containerName: string): Promise<ContainerStatus> {

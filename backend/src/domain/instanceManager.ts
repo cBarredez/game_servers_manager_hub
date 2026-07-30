@@ -312,6 +312,41 @@ export class InstanceManager {
     this.store.setRestartSchedule(id, time);
   }
 
+  /**
+   * Changes an instance's memory/disk limits at any time, not just at
+   * creation. Memory takes effect immediately via `podman update` (no
+   * restart needed) since Podman supports live container memory changes.
+   * Disk has no live equivalent — Podman can't resize an existing volume —
+   * so the new value is only saved for the next recreate() (and even then,
+   * best-effort, same as at creation: only enforced on storage backends
+   * with quota support).
+   */
+  async updateResources(id: string, memoryMb: number, diskGb: number): Promise<{ memoryApplied: boolean }> {
+    const row = this.requireRow(id);
+    if (!Number.isInteger(memoryMb) || memoryMb < 512) {
+      throw new Error("memoryMb must be at least 512");
+    }
+    if (!Number.isInteger(diskGb) || diskGb < 0) {
+      throw new Error("diskGb must be 0 (unlimited) or greater");
+    }
+
+    const template = getTemplate(row.gameType);
+    const names = template.containerNames(row.slug);
+    const memoryApplied = await podman.updateMemory(names.api, memoryMb);
+
+    this.store.setResourceLimits(id, memoryMb, diskGb);
+    this.store.insertMaintenanceLog({
+      scope: "instance",
+      instanceId: id,
+      gameType: row.gameType,
+      action: "resource-update",
+      detail: `memory -> ${memoryMb}m (${memoryApplied ? "applied live" : "container not found, saved for next start"}), disk -> ${diskGb === 0 ? "unlimited" : diskGb + "GB"} (applies on next recreate only)`,
+      success: true,
+    });
+
+    return { memoryApplied };
+  }
+
   async delete(id: string, removeVolumes: boolean): Promise<void> {
     const row = this.requireRow(id);
     this.store.updateInstanceLifecycle(id, "deleting");

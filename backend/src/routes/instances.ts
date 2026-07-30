@@ -108,6 +108,21 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
     },
   );
 
+  app.put<{ Params: { id: string }; Body: { memoryMb?: number; diskGb?: number } }>(
+    "/api/instances/:id/resources",
+    async (req, reply) => {
+      const { memoryMb, diskGb } = req.body ?? {};
+      if (memoryMb === undefined || diskGb === undefined) {
+        return reply.code(400).send({ error: "memoryMb and diskGb are both required" });
+      }
+      try {
+        return await ctx.instances.updateResources(req.params.id, memoryMb, diskGb);
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
+
   app.delete<{ Params: { id: string }; Body: { removeVolumes?: boolean } }>(
     "/api/instances/:id",
     async (req, reply) => {
