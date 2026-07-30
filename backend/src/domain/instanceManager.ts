@@ -66,6 +66,13 @@ export interface GameImageStatus {
   rebuilding: boolean;
 }
 
+export interface InstanceMetrics {
+  cpuPercent: number | null;
+  memUsedBytes: number | null;
+  memLimitBytes: number | null;
+  diskUsedBytes: number;
+}
+
 function gameImagesKey(gameType: GameType): string {
   return `game-images:${gameType}`;
 }
@@ -389,6 +396,38 @@ export class InstanceManager {
         };
       }),
     );
+  }
+
+  /** Live CPU/RAM (from the api container — the one with a real --memory limit; the frontend is negligible nginx overhead) and disk usage (summed across the instance's "sizeable" data volumes) for every created instance, in one batch. */
+  async getAllMetrics(): Promise<Record<string, InstanceMetrics>> {
+    const rows = this.store.listInstances().filter((row) => row.lifecycle === "created");
+    const volumeUsage = await podman.volumeDiskUsage();
+    const entries = await Promise.all(
+      rows.map(async (row) => [row.id, await this.computeMetrics(row, volumeUsage)] as const),
+    );
+    return Object.fromEntries(entries);
+  }
+
+  async getMetrics(id: string): Promise<InstanceMetrics> {
+    const row = this.requireRow(id);
+    return this.computeMetrics(row, await podman.volumeDiskUsage());
+  }
+
+  private async computeMetrics(row: InstanceRow, volumeUsage: Map<string, number>): Promise<InstanceMetrics> {
+    const template = getTemplate(row.gameType);
+    const names = template.containerNames(row.slug);
+    const stats = await podman.containerStats(names.api);
+    const diskUsedBytes = template
+      .volumes(row.slug)
+      .filter((volume) => volume.sizeable)
+      .reduce((sum, volume) => sum + (volumeUsage.get(volume.name) ?? 0), 0);
+
+    return {
+      cpuPercent: stats?.cpuPercent ?? null,
+      memUsedBytes: stats?.memUsedBytes ?? null,
+      memLimitBytes: stats?.memLimitBytes ?? null,
+      diskUsedBytes,
+    };
   }
 
   private async ensureImages(template: GameTemplate): Promise<void> {

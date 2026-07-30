@@ -87,6 +87,29 @@ export interface InstanceCredentials {
 export const getCredentials = (id: string): Promise<InstanceCredentials> =>
   GET<InstanceCredentials>(`/api/instances/${id}/credentials`);
 
+export interface InstanceMetrics {
+  cpuPercent: number | null;
+  memUsedBytes: number | null;
+  memLimitBytes: number | null;
+  diskUsedBytes: number;
+}
+
+export const getAllMetrics = (): Promise<{ metrics: Record<string, InstanceMetrics> }> =>
+  GET<{ metrics: Record<string, InstanceMetrics> }>("/api/metrics");
+
+export function formatBytes(bytes: number | null): string {
+  if (bytes === null) return "—";
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ["kB", "MB", "GB", "TB"];
+  let value = bytes / 1000;
+  let unitIndex = 0;
+  while (value >= 1000 && unitIndex < units.length - 1) {
+    value /= 1000;
+    unitIndex++;
+  }
+  return `${value.toFixed(value < 10 ? 2 : 1)} ${units[unitIndex]}`;
+}
+
 export interface MaintenanceSettings {
   cleanupEnabled: boolean;
   cleanupTime: string;

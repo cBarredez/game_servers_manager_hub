@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { getCredentials, statusPresentation, type InstanceCredentials, type InstanceSummary } from "../api/client.js";
+import {
+  formatBytes,
+  getCredentials,
+  statusPresentation,
+  type InstanceCredentials,
+  type InstanceMetrics,
+  type InstanceSummary,
+} from "../api/client.js";
 
 const GAME_IMAGE: Record<string, string> = {
   arma3: "/games/arma3.jpg",
@@ -9,6 +16,7 @@ const GAME_IMAGE: Record<string, string> = {
 export function InstanceCard({
   instance,
   outdated,
+  metrics,
   onStart,
   onStop,
   onRestart,
@@ -18,6 +26,7 @@ export function InstanceCard({
 }: {
   instance: InstanceSummary;
   outdated: boolean;
+  metrics: InstanceMetrics | undefined;
   onStart: (id: string) => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onRestart: (id: string) => Promise<void>;
@@ -103,6 +112,25 @@ export function InstanceCard({
             <dd>{value}</dd>
           </div>
         ))}
+      </dl>
+
+      <dl className="instance-metrics">
+        <div>
+          <dt>CPU</dt>
+          <dd>{metrics?.cpuPercent !== null && metrics?.cpuPercent !== undefined ? `${metrics.cpuPercent.toFixed(1)}%` : "—"}</dd>
+        </div>
+        <div>
+          <dt>RAM</dt>
+          <dd>
+            {metrics?.memUsedBytes !== null && metrics?.memUsedBytes !== undefined
+              ? `${formatBytes(metrics.memUsedBytes)} / ${formatBytes(metrics.memLimitBytes)}`
+              : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt>Disk</dt>
+          <dd>{metrics ? formatBytes(metrics.diskUsedBytes) : "—"}</dd>
+        </div>
       </dl>
 
       {credentialsOpen && credentials && (

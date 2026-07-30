@@ -47,6 +47,10 @@ verwendet.
   bereits generierten Konfiguration dieser Instanz gelesen — nie ein zweites
   Mal gespeichert).
 - Spiel-Titelbild auf jeder Instanzkarte.
+- Live-Anzeige von CPU-/RAM-/Speicherplatznutzung pro Instanz (über
+  `podman stats` und `podman system df -v`), unabhängig von der
+  Status-Aktualisierung abgefragt, da es ein aufwendigerer Aufruf ist.
+- Suchfeld im Dashboard, um Instanzen nach Namen zu filtern.
 - Unbeaufsichtigte Wartung: automatischer Neustart bei Absturz, optionale
   tägliche geplante Neustarts, Verfolgung von Quellcode-Updates mit
   Image-Neuerstellung und Instanz-Recreate per Klick, sowie tägliche

@@ -47,6 +47,10 @@ crea el hub.
   tarjeta en cualquier momento (se leen en vivo desde la configuración ya
   generada de esa instancia — nunca se guardan por duplicado).
 - Imagen de portada del juego en cada tarjeta de instancia.
+- Uso de CPU/RAM/disco en vivo por instancia (mediante `podman stats` y
+  `podman system df -v`), sondeado de forma independiente a la actualización
+  de estado por ser una llamada más pesada.
+- Buscador en el panel para filtrar instancias por nombre.
 - Mantenimiento desatendido: reinicio automático ante fallos, reinicios
   programados diarios opcionales, seguimiento de actualizaciones del código
   fuente con reconstrucción de imagen y recreación de instancia con un clic,

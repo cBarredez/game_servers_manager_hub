@@ -136,3 +136,65 @@ export async function containerStatus(containerName: string): Promise<ContainerS
     return "missing";
   }
 }
+
+/** Parses a podman-formatted size like "516.1kB", "14.65GB", or "1.784MiB" into raw bytes. */
+export function parseByteSize(text: string): number {
+  const match = /^([\d.]+)\s*([a-zA-Z]*)$/.exec(text.trim());
+  if (!match) return 0;
+  const value = Number.parseFloat(match[1]);
+  const multipliers: Record<string, number> = {
+    "": 1,
+    b: 1,
+    kb: 1_000,
+    mb: 1_000_000,
+    gb: 1_000_000_000,
+    tb: 1_000_000_000_000,
+    kib: 1024,
+    mib: 1024 ** 2,
+    gib: 1024 ** 3,
+    tib: 1024 ** 4,
+  };
+  return value * (multipliers[match[2].toLowerCase()] ?? 1);
+}
+
+export interface ContainerStats {
+  cpuPercent: number;
+  memUsedBytes: number;
+  memLimitBytes: number;
+}
+
+/** Live CPU/RAM for a single running container. Returns null for a stopped/missing container — podman stats only works on running ones. */
+export async function containerStats(containerName: string): Promise<ContainerStats | null> {
+  try {
+    const output = await podman(["stats", "--no-stream", "--format", "json", containerName]);
+    const [entry] = JSON.parse(output) as { cpu_percent?: string; mem_usage?: string }[];
+    if (!entry?.mem_usage) return null;
+    const [usedText, limitText] = entry.mem_usage.split("/").map((part) => part.trim());
+    return {
+      cpuPercent: Number.parseFloat((entry.cpu_percent ?? "0").replace("%", "")) || 0,
+      memUsedBytes: parseByteSize(usedText ?? "0"),
+      memLimitBytes: parseByteSize(limitText ?? "0"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Disk usage of every local volume, keyed by volume name, parsed from `podman system df -v`'s "Local Volumes" table (podman has no JSON output for this). */
+export async function volumeDiskUsage(): Promise<Map<string, number>> {
+  const usage = new Map<string, number>();
+  try {
+    const output = await podman(["system", "df", "-v"]);
+    const lines = output.split("\n");
+    const headerIndex = lines.findIndex((line) => line.trim().startsWith("VOLUME NAME"));
+    if (headerIndex === -1) return usage;
+    for (const line of lines.slice(headerIndex + 1)) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 2) continue;
+      usage.set(columns[0], parseByteSize(columns[columns.length - 1]));
+    }
+  } catch {
+    // best-effort — an empty map just means the UI shows no disk figure
+  }
+  return usage;
+}

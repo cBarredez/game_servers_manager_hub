@@ -38,6 +38,10 @@ as the Podman build context for every instance the hub creates.
 - View an instance's admin login credentials from its card at any time (read
   live from that instance's own generated config — never stored a second time).
 - Game cover art per instance card.
+- Live CPU/RAM/disk usage per instance card (from `podman stats` and
+  `podman system df -v`), polled independently of the status refresh since
+  it's a heavier call.
+- Search box on the dashboard to filter instances by name.
 - Unattended maintenance: auto-restart on crash, opt-in daily scheduled
   restarts, source-update tracking with one-click image rebuild + instance
   recreate, and daily dangling-image cleanup — see [Maintenance](#maintenance) below.

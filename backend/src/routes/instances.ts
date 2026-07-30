@@ -12,6 +12,10 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
     return { instances: await ctx.instances.list() };
   });
 
+  app.get("/api/metrics", async () => {
+    return { metrics: await ctx.instances.getAllMetrics() };
+  });
+
   app.post<{
     Body: { gameType?: string; name?: string; mock?: boolean; memoryMb?: number; diskGb?: number };
   }>("/api/instances", async (req, reply) => {
