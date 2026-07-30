@@ -53,6 +53,17 @@ export class MaintenanceService {
   }
 
   async tick(now = new Date()): Promise<void> {
+    // Every check below needs Podman itself reachable. Skip the whole tick
+    // instead of letting each instance's restart attempt fail individually
+    // — that matters most right after a host reboot, when Podman's own
+    // machine/service can take a while to come up: without this guard, every
+    // "should be running" instance would look crashed at once and burn
+    // through its auto-restart budget before Podman even finished starting.
+    if (!(await podman.isAvailable())) {
+      console.warn("maintenance tick skipped: podman is not reachable yet");
+      return;
+    }
+
     const nowHHMM = formatHHMM(now);
     const todayStr = formatDate(now);
     const settings = this.getSettings();

@@ -37,6 +37,23 @@ export async function podmanBestEffort(args: string[]): Promise<void> {
   }
 }
 
+/**
+ * Cheap connectivity probe, used by the maintenance scheduler to tell "Podman
+ * itself isn't reachable yet" (e.g. right after a host reboot, before the
+ * Podman machine/service has finished starting) apart from a genuine
+ * per-instance crash — without this, a slow-to-start Podman would look like
+ * every instance crashing at once and burn through their auto-restart
+ * budgets for a reason that has nothing to do with the instances themselves.
+ */
+export async function isAvailable(): Promise<boolean> {
+  try {
+    await execFileAsync("podman", ["version", "--format", "{{.Client.Version}}"], { timeout: 5_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function networkCreate(name: string): Promise<void> {
   await podmanBestEffort(["network", "create", name]);
 }

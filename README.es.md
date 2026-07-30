@@ -80,7 +80,19 @@ vivo bajo demanda en su lugar. Todo es configurable desde la pestaña
   automáticamente, hasta un límite de intentos configurable — superado ese
   límite, deja de intentarlo y muestra la instancia visiblemente
   `degraded` en vez de reiniciarla en bucle indefinidamente. Un Start/Restart
-  manual reinicia el contador.
+  manual reinicia el contador. Esto es también lo que hace que las instancias
+  vuelvan tras reiniciar la propia máquina host: el estado deseado de cada
+  instancia vive en la base de datos SQLite del hub, no en memoria, así que
+  sobrevive a que el propio proceso del hub se reinicie junto con todo lo
+  demás; la comprobación de mantenimiento se ejecuta una vez de inmediato al
+  arrancar (no solo con su cadencia normal de 60s), para que las instancias
+  que estaban en ejecución antes de un reinicio no se queden apagadas hasta
+  un minuto antes de que el hub siquiera lo note. Si Podman en sí todavía no
+  está disponible (su propia máquina/servicio puede tardar en arrancar tras
+  reiniciar el host), el hub se salta esa comprobación por completo en vez de
+  tratar a todas las instancias como si hubieran fallado y gastar su
+  presupuesto de reintentos por un motivo que no tiene nada que ver con las
+  instancias en sí.
 - **Reinicios programados**: hora de reinicio diario opcional por instancia
   (`HH:MM`, hora local del host), configurable desde la tarjeta de la
   instancia. Se dispara como máximo una vez al día.

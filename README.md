@@ -65,7 +65,17 @@ All of it is configurable from the **Maintenance** tab:
   while it's supposed to be running (i.e. nobody clicked Stop), the hub
   restarts it automatically, up to a configurable attempt limit — past that,
   it stops trying and leaves the instance visibly `degraded` rather than
-  restart-looping forever. A manual Start/Restart resets the counter.
+  restart-looping forever. A manual Start/Restart resets the counter. This
+  is also what brings instances back after the host machine itself reboots:
+  every instance's desired state lives in the hub's own SQLite database, not
+  in memory, so it survives the hub process restarting along with everything
+  else; the maintenance check runs once immediately on startup (not just on
+  its normal 60s cadence) so instances that were running before a reboot
+  don't sit down for up to a minute before the hub even notices. If Podman
+  itself isn't reachable yet (its own machine/service can take a while to
+  come up after a host reboot), the hub skips that check entirely instead of
+  treating every instance as crashed and burning through their restart
+  budgets for a reason that has nothing to do with the instances themselves.
 - **Scheduled restarts**: optional per-instance daily restart time
   (`HH:MM`, host-local), set from the instance card. Fires at most once per
   day.

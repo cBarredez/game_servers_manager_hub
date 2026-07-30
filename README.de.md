@@ -78,7 +78,19 @@ ist über den Tab **Maintenance** konfigurierbar:
   auf Stop geklickt), startet der Hub sie automatisch neu, bis zu einem
   konfigurierbaren Versuchslimit — danach wird es aufgegeben und die Instanz
   bleibt sichtbar `degraded`, statt endlos neu gestartet zu werden. Ein
-  manueller Start/Restart setzt den Zähler zurück.
+  manueller Start/Restart setzt den Zähler zurück. Das ist auch der
+  Mechanismus, der Instanzen nach einem Neustart der Host-Maschine selbst
+  zurückbringt: Der gewünschte Zustand jeder Instanz lebt in der eigenen
+  SQLite-Datenbank des Hubs, nicht im Arbeitsspeicher, und übersteht so einen
+  Neustart des Hub-Prozesses zusammen mit allem anderen; die
+  Wartungsprüfung läuft beim Start sofort einmal (nicht erst nach dem
+  normalen 60s-Takt), damit Instanzen, die vor einem Neustart liefen, nicht
+  bis zu eine Minute lang stillstehen, bevor der Hub es überhaupt bemerkt.
+  Ist Podman selbst noch nicht erreichbar (die eigene Machine/der Dienst
+  kann nach einem Host-Neustart eine Weile brauchen), überspringt der Hub
+  diese Prüfung komplett, statt jede Instanz als abgestürzt zu behandeln und
+  deren Neustart-Budget aus einem Grund aufzubrauchen, der nichts mit den
+  Instanzen selbst zu tun hat.
 - **Geplante Neustarts**: optionale tägliche Neustartzeit pro Instanz
   (`HH:MM`, lokale Host-Zeit), einstellbar über die Instanzkarte. Löst
   höchstens einmal pro Tag aus.
