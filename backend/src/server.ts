@@ -27,7 +27,8 @@ async function main(): Promise<void> {
   const selfUpdate = new SelfUpdateService(store, HUB_ROOT);
   const version = { commit: (await getHeadCommit(HUB_ROOT)) ?? "unknown" };
 
-  const ctx: AppContext = { config, store, instances, maintenance, selfUpdate, version };
+  const frontendDistDir = path.join(HUB_ROOT, "frontend", "dist");
+  const ctx: AppContext = { config, store, instances, maintenance, selfUpdate, version, frontendDistDir };
   const app = await buildApp(ctx);
 
   startMaintenanceScheduler(maintenance);

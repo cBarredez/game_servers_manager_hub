@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
+import staticPlugin from "@fastify/static";
 import type { AppConfig } from "./config/index.js";
 import type { SqliteStore } from "./infra/sqliteStore.js";
 import type { InstanceManager } from "./domain/instanceManager.js";
@@ -18,12 +19,17 @@ export interface AppContext {
   selfUpdate: SelfUpdateService;
   /** Git commit of the hub's own source tree, resolved once at startup (server.ts) — the hub runs straight from source, not a discrete build artifact, so there's no separate build date to show. */
   version: { commit: string };
+  /** Built frontend (frontend/dist) — served directly by this same process so `npm start` is self-sufficient, no separate static server needed. */
+  frontendDistDir: string;
 }
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
 
   await app.register(cookie);
+  // Public like the login page itself has to be — the SPA's own JS is what
+  // performs the authenticated /api/* calls, so it must load before login.
+  await app.register(staticPlugin, { root: ctx.frontendDistDir });
 
   app.get("/api/health", async () => ({ status: "ok", commit: ctx.version.commit }));
 
