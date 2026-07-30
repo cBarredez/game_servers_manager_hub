@@ -582,6 +582,16 @@ button.btn-danger:hover:not(:disabled) {
   gap: 1.75rem;
 }
 
+.maintenance-success {
+  margin: 0;
+  font-size: .85rem;
+  color: var(--success);
+  background: rgba(var(--success-rgb), 0.12);
+  border: 1px solid var(--success);
+  border-radius: 6px;
+  padding: .6rem .85rem;
+}
+
 .maintenance-section h2 {
   font-size: 1.1rem;
   margin: 0 0 .75rem;

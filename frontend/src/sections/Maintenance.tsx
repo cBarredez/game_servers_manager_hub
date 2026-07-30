@@ -17,6 +17,7 @@ export function Maintenance() {
   const [games, setGames] = useState<GameImageStatus[]>([]);
   const [log, setLog] = useState<MaintenanceLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [rebuilding, setRebuilding] = useState<string | null>(null);
 
@@ -58,9 +59,15 @@ export function Maintenance() {
   const doRebuild = async (gameType: string) => {
     setRebuilding(gameType);
     setError(null);
+    setSuccessMessage(null);
     try {
-      await rebuildImage(gameType as GameImageStatus["gameType"]);
+      const result = await rebuildImage(gameType as GameImageStatus["gameType"]);
       await refresh();
+      const commitNote = result.apiCommit ? ` (commit ${result.apiCommit.slice(0, 10)})` : "";
+      setSuccessMessage(
+        `${gameType} image rebuilt successfully${commitNote}. Already-running instances stay on their old ` +
+          `image until you click "Recreate from latest image" on each one from the dashboard.`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -75,6 +82,7 @@ export function Maintenance() {
   return (
     <div className="maintenance">
       {error && <p role="alert">{error}</p>}
+      {successMessage && <p className="maintenance-success">{successMessage}</p>}
 
       <section className="maintenance-section">
         <h2>Settings</h2>
