@@ -97,8 +97,14 @@ export async function pruneDangling(): Promise<string[]> {
   }
 }
 
-export async function build(contextDir: string, containerfile: string, tag: string): Promise<void> {
-  await podman(["build", "--file", containerfile, "--tag", tag, contextDir]);
+export async function build(
+  contextDir: string,
+  containerfile: string,
+  tag: string,
+  buildArgs: Record<string, string> = {},
+): Promise<void> {
+  const argFlags = Object.entries(buildArgs).flatMap(([key, value]) => ["--build-arg", `${key}=${value}`]);
+  await podman(["build", ...argFlags, "--file", containerfile, "--tag", tag, contextDir]);
   // Multi-stage Containerfiles (both arma3 and pz use them) leave the
   // intermediate build-stage image dangling (untagged) after each build —
   // harmless but it silently eats disk space over time, so sweep it up

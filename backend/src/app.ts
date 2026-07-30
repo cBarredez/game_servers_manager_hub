@@ -14,6 +14,8 @@ export interface AppContext {
   store: SqliteStore;
   instances: InstanceManager;
   maintenance: MaintenanceService;
+  /** Git commit of the hub's own source tree, resolved once at startup (server.ts) — the hub runs straight from source, not a discrete build artifact, so there's no separate build date to show. */
+  version: { commit: string };
 }
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
@@ -21,7 +23,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
 
   await app.register(cookie);
 
-  app.get("/api/health", async () => ({ status: "ok" }));
+  app.get("/api/health", async () => ({ status: "ok", commit: ctx.version.commit }));
 
   await registerAuthRoutes(app, ctx);
 

@@ -26,6 +26,14 @@ export interface AuthCheckResponse {
 
 export const authCheck = (): Promise<AuthCheckResponse> => GET<AuthCheckResponse>("/api/auth/check");
 
+export interface HealthResponse {
+  status: string;
+  commit: string;
+  buildDate?: string;
+}
+
+export const getHealth = (): Promise<HealthResponse> => GET<HealthResponse>("/api/health");
+
 export type GameType = "arma3" | "pz";
 
 export interface GameTemplateInfo {

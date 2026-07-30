@@ -3,6 +3,7 @@ import { authCheck, POST } from "./api/client.js";
 import { Login } from "./sections/Login.js";
 import { Dashboard } from "./sections/Dashboard.js";
 import { Maintenance } from "./sections/Maintenance.js";
+import { VersionBadge } from "./sections/VersionBadge.js";
 
 type Section = "dashboard" | "maintenance";
 
@@ -23,6 +24,7 @@ export function App() {
     return (
       <div className="app-loading" role="status">
         Connecting to Server Hub…
+        <VersionBadge />
       </div>
     );
   }
@@ -36,6 +38,7 @@ export function App() {
           </div>
         )}
         <Login onLoggedIn={setUsername} />
+        <VersionBadge />
       </>
     );
   }
@@ -72,6 +75,7 @@ export function App() {
         {section === "dashboard" && <Dashboard />}
         {section === "maintenance" && <Maintenance />}
       </main>
+      <VersionBadge />
     </div>
   );
 }

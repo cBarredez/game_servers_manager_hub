@@ -4,6 +4,7 @@ import { loadConfig } from "./config/index.js";
 import { SqliteStore } from "./infra/sqliteStore.js";
 import { PortAllocator } from "./infra/portAllocator.js";
 import { startMaintenanceScheduler } from "./infra/scheduler.js";
+import { getHeadCommit } from "./infra/git.js";
 import { InstanceManager } from "./domain/instanceManager.js";
 import { MaintenanceService } from "./domain/maintenanceService.js";
 import { buildApp, type AppContext } from "./app.js";
@@ -22,8 +23,9 @@ async function main(): Promise<void> {
   const allocator = new PortAllocator(store, config.ports.webBase);
   const instances = new InstanceManager(store, allocator, reposRoot, dataDir);
   const maintenance = new MaintenanceService(store, instances);
+  const version = { commit: (await getHeadCommit(HUB_ROOT)) ?? "unknown" };
 
-  const ctx: AppContext = { config, store, instances, maintenance };
+  const ctx: AppContext = { config, store, instances, maintenance, version };
   const app = await buildApp(ctx);
 
   startMaintenanceScheduler(maintenance);

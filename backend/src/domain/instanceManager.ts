@@ -374,15 +374,18 @@ export class InstanceManager {
     try {
       const template = getTemplate(gameType);
       const contextDir = path.join(this.reposRoot, template.repoDirName);
-      await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api);
-      await podman.build(contextDir, path.join(contextDir, "Containerfile.frontend"), template.images.frontend);
-
       const commit = await getHeadCommit(contextDir);
-      const record: GameImagesRecord = {
-        apiCommit: commit,
-        frontendCommit: commit,
-        builtAt: new Date().toISOString(),
-      };
+      const builtAt = new Date().toISOString();
+      const buildArgs = { GIT_COMMIT: commit ?? "unknown", BUILD_DATE: builtAt };
+      await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api, buildArgs);
+      await podman.build(
+        contextDir,
+        path.join(contextDir, "Containerfile.frontend"),
+        template.images.frontend,
+        buildArgs,
+      );
+
+      const record: GameImagesRecord = { apiCommit: commit, frontendCommit: commit, builtAt };
       this.store.setJson(gameImagesKey(gameType), record);
       this.store.insertMaintenanceLog({
         scope: "image",
@@ -471,18 +474,26 @@ export class InstanceManager {
     const frontendExists = await podman.imageExists(template.images.frontend);
     if (apiExists && frontendExists) return;
 
+    const commit = await getHeadCommit(contextDir);
+    const builtAt = new Date().toISOString();
+    const buildArgs = { GIT_COMMIT: commit ?? "unknown", BUILD_DATE: builtAt };
+
     if (!apiExists) {
-      await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api);
+      await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api, buildArgs);
     }
     if (!frontendExists) {
-      await podman.build(contextDir, path.join(contextDir, "Containerfile.frontend"), template.images.frontend);
+      await podman.build(
+        contextDir,
+        path.join(contextDir, "Containerfile.frontend"),
+        template.images.frontend,
+        buildArgs,
+      );
     }
     if (!this.store.getJson<GameImagesRecord>(gameImagesKey(template.gameType))) {
-      const commit = await getHeadCommit(contextDir);
       this.store.setJson<GameImagesRecord>(gameImagesKey(template.gameType), {
         apiCommit: commit,
         frontendCommit: commit,
-        builtAt: new Date().toISOString(),
+        builtAt,
       });
     }
   }
