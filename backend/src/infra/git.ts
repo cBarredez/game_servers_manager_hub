@@ -51,3 +51,40 @@ export async function pull(repoDir: string): Promise<PullResult> {
     return { success: false, message: message.trim() };
   }
 }
+
+export interface FetchResult {
+  success: boolean;
+  message?: string;
+}
+
+/**
+ * Updates local knowledge of the remote's refs without touching the working
+ * tree — used to answer "is an update available" without actually pulling.
+ */
+export async function fetchRemote(repoDir: string): Promise<FetchResult> {
+  try {
+    await execFileAsync("git", ["-C", repoDir, "fetch", "--quiet"], {
+      timeout: 15_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    return { success: true };
+  } catch (error) {
+    const err = error as { stderr?: string; message: string; killed?: boolean };
+    const message = err.killed ? "git fetch timed out after 15s" : err.stderr || err.message;
+    return { success: false, message: message.trim() };
+  }
+}
+
+/**
+ * Commit the current branch's upstream is at, as of the last fetch (call
+ * fetchRemote first for a fresh answer). Null if there's no upstream
+ * configured (e.g. detached HEAD, or a repo cloned without tracking set up).
+ */
+export async function getUpstreamCommit(repoDir: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "@{u}"]);
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}

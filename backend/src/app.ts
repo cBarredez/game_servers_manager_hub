@@ -4,6 +4,7 @@ import type { AppConfig } from "./config/index.js";
 import type { SqliteStore } from "./infra/sqliteStore.js";
 import type { InstanceManager } from "./domain/instanceManager.js";
 import type { MaintenanceService } from "./domain/maintenanceService.js";
+import type { SelfUpdateService } from "./domain/selfUpdateService.js";
 import { registerAuthRoutes, requireAuth } from "./routes/auth.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerInstanceRoutes } from "./routes/instances.js";
@@ -14,6 +15,7 @@ export interface AppContext {
   store: SqliteStore;
   instances: InstanceManager;
   maintenance: MaintenanceService;
+  selfUpdate: SelfUpdateService;
   /** Git commit of the hub's own source tree, resolved once at startup (server.ts) — the hub runs straight from source, not a discrete build artifact, so there's no separate build date to show. */
   version: { commit: string };
 }

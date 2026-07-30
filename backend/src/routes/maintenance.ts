@@ -59,4 +59,25 @@ export async function registerMaintenanceRoutes(app: FastifyInstance, ctx: AppCo
       return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
+
+  app.get("/api/maintenance/hub-status", async () => ctx.selfUpdate.getStatus());
+
+  app.post("/api/maintenance/hub/update", async (req, reply) => {
+    try {
+      const result = await ctx.selfUpdate.update();
+      if (!result.success) {
+        return reply.code(409).send(result);
+      }
+      if (result.restarting) {
+        // Only hand off to the new process once this response has actually
+        // reached the client — closing the server any earlier would drop it.
+        reply.raw.once("finish", () => {
+          void ctx.selfUpdate.restart(app);
+        });
+      }
+      return reply.code(200).send(result);
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 }

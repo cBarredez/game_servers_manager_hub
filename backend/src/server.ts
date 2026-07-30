@@ -7,6 +7,7 @@ import { startMaintenanceScheduler } from "./infra/scheduler.js";
 import { getHeadCommit } from "./infra/git.js";
 import { InstanceManager } from "./domain/instanceManager.js";
 import { MaintenanceService } from "./domain/maintenanceService.js";
+import { SelfUpdateService } from "./domain/selfUpdateService.js";
 import { buildApp, type AppContext } from "./app.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,9 +24,10 @@ async function main(): Promise<void> {
   const allocator = new PortAllocator(store, config.ports.webBase);
   const instances = new InstanceManager(store, allocator, reposRoot, dataDir);
   const maintenance = new MaintenanceService(store, instances);
+  const selfUpdate = new SelfUpdateService(store, HUB_ROOT);
   const version = { commit: (await getHeadCommit(HUB_ROOT)) ?? "unknown" };
 
-  const ctx: AppContext = { config, store, instances, maintenance, version };
+  const ctx: AppContext = { config, store, instances, maintenance, selfUpdate, version };
   const app = await buildApp(ctx);
 
   startMaintenanceScheduler(maintenance);

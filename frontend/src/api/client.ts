@@ -169,6 +169,23 @@ export const rebuildImage = (gameType: GameType): Promise<{ apiCommit: string | 
 export const pullLatest = (gameType: GameType): Promise<{ success: boolean; message: string }> =>
   POST(`/api/maintenance/images/${gameType}/pull`);
 
+export interface HubUpdateStatus {
+  currentCommit: string | null;
+  remoteCommit: string | null;
+  updateAvailable: boolean;
+  updating: boolean;
+  checkError: string | null;
+}
+
+export interface HubUpdateResult {
+  success: boolean;
+  message: string;
+  restarting: boolean;
+}
+
+export const getHubStatus = (): Promise<HubUpdateStatus> => GET<HubUpdateStatus>("/api/maintenance/hub-status");
+export const updateHub = (): Promise<HubUpdateResult> => POST<HubUpdateResult>("/api/maintenance/hub/update");
+
 export function statusPresentation(status: InstanceStatus): {
   label: string;
   tone: "neutral" | "positive" | "warning" | "negative";

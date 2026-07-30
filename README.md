@@ -51,12 +51,15 @@ as the Podman build context for every instance the hub creates.
   next time that instance is recreated.
 - Unattended maintenance: auto-restart on crash, opt-in daily scheduled
   restarts, source-update tracking with one-click image rebuild + instance
-  recreate, and daily dangling-image cleanup — see [Maintenance](#maintenance) below.
+  recreate, hub self-update, and daily dangling-image cleanup — see
+  [Maintenance](#maintenance) below.
 
 ## Maintenance
 
-A background scheduler (`infra/scheduler.ts`, ticks every 60s) drives four
-independent behaviors, all configurable from the **Maintenance** tab:
+A background scheduler (`infra/scheduler.ts`, ticks every 60s) drives most of
+the automatic behaviors below; source-update checks (both for game images
+and for the hub itself) are cheap enough to compute live on demand instead.
+All of it is configurable from the **Maintenance** tab:
 
 - **Auto-restart on crash**: if an instance's containers stop unexpectedly
   while it's supposed to be running (i.e. nobody clicked Stop), the hub
@@ -79,6 +82,17 @@ independent behaviors, all configurable from the **Maintenance** tab:
   share a lock per game type so they can never run concurrently against the
   same working tree. **Limitation**: only detects committed changes to the
   sibling repos, not uncommitted local edits.
+- **Hub self-update**: separate from the image tracking above — this is the
+  hub's *own* source, not `arma_server`/`proyect_zomboid`. The Maintenance
+  tab shows whether the hub's git remote has commits the running hub doesn't
+  (`git fetch` + compare against `HEAD`). "Update & restart hub" runs
+  `git pull --ff-only`, `npm install` (only if a `package.json`/
+  `package-lock.json` actually changed), rebuilds both the backend and
+  frontend, then hands off to a freshly-spawned process and exits — the page
+  briefly loses connection during the handoff and reconnects on its own once
+  the new process is listening. If the pull or build fails, nothing is
+  touched: the current process keeps running exactly as before, and the
+  failure shows up in the activity log instead of taking the hub down.
 - **Automated host cleanup**: a daily dangling-image prune (same operation
   already run after every build), so cleanup doesn't depend on you
   remembering to do it manually.

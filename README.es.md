@@ -62,13 +62,17 @@ crea el hub.
 - Mantenimiento desatendido: reinicio automático ante fallos, reinicios
   programados diarios opcionales, seguimiento de actualizaciones del código
   fuente con reconstrucción de imagen y recreación de instancia con un clic,
-  y limpieza diaria de imágenes huérfanas — ver [Mantenimiento](#mantenimiento) más abajo.
+  autoactualización del propio hub, y limpieza diaria de imágenes huérfanas
+  — ver [Mantenimiento](#mantenimiento) más abajo.
 
 ## Mantenimiento
 
 Un planificador en segundo plano (`infra/scheduler.ts`, se ejecuta cada 60s)
-gestiona cuatro comportamientos independientes, todos configurables desde la
-pestaña **Maintenance**:
+gestiona la mayoría de los comportamientos automáticos siguientes; las
+comprobaciones de actualizaciones de código fuente (tanto de las imágenes de
+juego como del propio hub) son lo bastante baratas como para calcularse en
+vivo bajo demanda en su lugar. Todo es configurable desde la pestaña
+**Maintenance**:
 
 - **Reinicio automático ante fallos**: si los contenedores de una instancia
   se detienen inesperadamente mientras se supone que debería estar en
@@ -95,6 +99,19 @@ pestaña **Maintenance**:
   a la vez sobre el mismo árbol de trabajo. **Limitación**: solo detecta
   cambios confirmados (committed) en los repos hermanos, no ediciones
   locales sin confirmar.
+- **Autoactualización del hub**: independiente del seguimiento de imágenes
+  de arriba — esto es el código fuente *propio* del hub, no el de
+  `arma_server`/`proyect_zomboid`. La pestaña Maintenance muestra si el
+  remoto de git del hub tiene commits que el hub en ejecución todavía no
+  tiene (`git fetch` + comparación contra `HEAD`). "Update & restart hub"
+  ejecuta `git pull --ff-only`, `npm install` (solo si realmente cambió
+  algún `package.json`/`package-lock.json`), reconstruye tanto el backend
+  como el frontend, y luego entrega el control a un proceso recién lanzado y
+  termina — la página pierde brevemente la conexión durante ese traspaso y
+  se reconecta sola en cuanto el nuevo proceso empieza a escuchar. Si el pull
+  o el build fallan, no se toca nada: el proceso actual sigue funcionando
+  exactamente igual que antes, y el fallo queda registrado en el log de
+  actividad en vez de tumbar el hub.
 - **Limpieza automática del host**: una purga diaria de imágenes huérfanas
   (la misma operación que ya se ejecuta tras cada compilación), para que la
   limpieza no dependa de que te acuerdes de hacerla manualmente.

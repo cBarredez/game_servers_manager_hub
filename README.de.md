@@ -61,13 +61,17 @@ verwendet.
   nächsten Recreate dieser Instanz angewendet.
 - Unbeaufsichtigte Wartung: automatischer Neustart bei Absturz, optionale
   tägliche geplante Neustarts, Verfolgung von Quellcode-Updates mit
-  Image-Neuerstellung und Instanz-Recreate per Klick, sowie tägliche
-  Bereinigung verwaister Images — siehe [Wartung](#wartung) weiter unten.
+  Image-Neuerstellung und Instanz-Recreate per Klick, Selbstaktualisierung
+  des Hubs, sowie tägliche Bereinigung verwaister Images — siehe
+  [Wartung](#wartung) weiter unten.
 
 ## Wartung
 
-Ein Hintergrund-Scheduler (`infra/scheduler.ts`, tickt alle 60s) steuert vier
-unabhängige Funktionen, alle über den Tab **Maintenance** konfigurierbar:
+Ein Hintergrund-Scheduler (`infra/scheduler.ts`, tickt alle 60s) steuert die
+meisten der folgenden automatischen Funktionen; die Prüfung auf
+Quellcode-Updates (sowohl für Spiel-Images als auch für den Hub selbst) ist
+billig genug, um stattdessen live bei Bedarf berechnet zu werden. Alles davon
+ist über den Tab **Maintenance** konfigurierbar:
 
 - **Automatischer Neustart bei Absturz**: Wenn die Container einer Instanz
   unerwartet stoppen, während sie eigentlich laufen sollte (d. h. niemand hat
@@ -92,6 +96,19 @@ unabhängige Funktionen, alle über den Tab **Maintenance** konfigurierbar:
   Spieltyp, damit sie nie gleichzeitig auf demselben Arbeitsverzeichnis
   laufen. **Einschränkung**: erkennt nur committete Änderungen an den
   Geschwister-Repos, keine uncommitteten lokalen Bearbeitungen.
+- **Hub-Selbstaktualisierung**: unabhängig von der Image-Verfolgung oben —
+  hierbei geht es um den *eigenen* Quellcode des Hubs, nicht um
+  `arma_server`/`proyect_zomboid`. Der Maintenance-Tab zeigt, ob das
+  Git-Remote des Hubs Commits enthält, die der laufende Hub noch nicht hat
+  (`git fetch` + Vergleich mit `HEAD`). "Update & restart hub" führt
+  `git pull --ff-only` aus, dann `npm install` (nur falls sich tatsächlich
+  ein `package.json`/`package-lock.json` geändert hat), baut sowohl Backend
+  als auch Frontend neu und übergibt anschließend an einen frisch gestarteten
+  Prozess, bevor er sich beendet — die Seite verliert dabei kurz die
+  Verbindung und verbindet sich von selbst neu, sobald der neue Prozess
+  lauscht. Schlagen Pull oder Build fehl, bleibt alles unangetastet: der
+  aktuelle Prozess läuft unverändert weiter, und der Fehler erscheint im
+  Aktivitätsprotokoll, statt den Hub lahmzulegen.
 - **Automatische Host-Bereinigung**: eine tägliche Bereinigung verwaister
   Images (derselbe Vorgang, der bereits nach jedem Build läuft), damit die
   Bereinigung nicht davon abhängt, dass Sie sich daran erinnern, sie manuell
