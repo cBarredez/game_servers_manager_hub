@@ -245,6 +245,28 @@ innerhalb eines Containers — er benötigt direkten Zugriff auf die
 Podman-in-Podman-Socket-Mounting ohne echten Nutzen in dieser
 Größenordnung erfordern würde.
 
+Es gibt keinen Prozessmanager, der ihn überwacht (keine systemd-Unit, kein
+pm2) — ihn zu stoppen bedeutet also, einfach einen normalen
+Vordergrundprozess zu stoppen:
+
+- Läuft er in einem Terminal (`npm start`, `npm run dev:backend`):
+  `Strg+C` in diesem Terminal.
+- Läuft er im Hintergrund / ohne angeschlossenes Terminal: finden und
+  stoppen, was `web.port` (Standard 4000) geöffnet hält —
+  ```powershell
+  # Windows PowerShell
+  Get-NetTCPConnection -LocalPort 4000 -State Listen |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+  ```bash
+  # Linux/macOS
+  fuser -k 4000/tcp
+  ```
+  Die vom Hub verwalteten Instanzen laufen in jedem Fall weiter — das
+  Stoppen des Hubs beendet nur das Panel und dessen eigene
+  Wartungsautomatisierung (automatischer Neustart, geplante Neustarts,
+  Bereinigung), nicht die Spieleserver selbst.
+
 ### Konfiguration
 
 - `config/manager.toml`: eigener Web-Port/Bind/Benutzername des Hubs, dazu

@@ -219,6 +219,26 @@ sibling `arma_server`/`proyect_zomboid` directories as build contexts, which
 would otherwise require Podman-in-Podman socket mounting for no real benefit
 at this scale.
 
+There's no process manager watching over it (no systemd unit, no pm2), so
+stopping it is whatever stops a plain foreground process:
+
+- Running in a terminal (`npm start`, `npm run dev:backend`): `Ctrl+C` in
+  that terminal.
+- Running in the background / no terminal attached: find and stop whatever
+  has `web.port` (default 4000) open —
+  ```powershell
+  # Windows PowerShell
+  Get-NetTCPConnection -LocalPort 4000 -State Listen |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+  ```bash
+  # Linux/macOS
+  fuser -k 4000/tcp
+  ```
+  Instances the hub manages keep running either way — stopping the hub only
+  stops the panel and its own maintenance automation (auto-restart,
+  scheduled restarts, cleanup), not the game servers themselves.
+
 ### Configuration
 
 - `config/manager.toml`: hub's own web port/bind/username, plus

@@ -245,6 +245,28 @@ host y a los directorios hermanos `arma_server`/`proyect_zomboid` como
 contexto de compilación, lo que de otro modo requeriría montar el socket de
 Podman dentro de Podman sin ningún beneficio real a esta escala.
 
+No hay ningún gestor de procesos vigilándolo (sin unidad de systemd, sin
+pm2), así que detenerlo es lo mismo que detener cualquier proceso en
+primer plano:
+
+- Si se ejecuta en una terminal (`npm start`, `npm run dev:backend`):
+  `Ctrl+C` en esa terminal.
+- Si se ejecuta en segundo plano / sin terminal asociada: hay que
+  encontrar y detener lo que tenga abierto `web.port` (por defecto 4000) —
+  ```powershell
+  # Windows PowerShell
+  Get-NetTCPConnection -LocalPort 4000 -State Listen |
+    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+  ```
+  ```bash
+  # Linux/macOS
+  fuser -k 4000/tcp
+  ```
+  Las instancias que gestiona el hub siguen ejecutándose de todos modos —
+  detener el hub solo detiene el panel y su propio mantenimiento automático
+  (reinicio ante fallos, reinicios programados, limpieza), no los propios
+  servidores de juego.
+
 ### Configuración
 
 - `config/manager.toml`: puerto/bind/usuario web propios del hub, más
