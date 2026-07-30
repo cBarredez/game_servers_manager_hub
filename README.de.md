@@ -82,10 +82,15 @@ unabhängige Funktionen, alle über den Tab **Maintenance** konfigurierbar:
   Git-Commit von `arma_server`/`proyect_zomboid`, aus dem ihr Image gebaut
   wurde. Der Maintenance-Tab vergleicht das live mit dem aktuellen `HEAD`
   jedes Repos und markiert veraltete Instanzen (kein Polling nötig — nur ein
-  paar `git rev-parse`-Aufrufe) — "Rebuild image" baut frische Images für
-  einen Spieltyp, und "Recreate from latest image" versetzt eine einzelne
-  Instanz auf diese Images, ohne ihre Ports, Volumes oder Konfiguration
-  anzutasten. **Einschränkung**: erkennt nur committete Änderungen an den
+  paar `git rev-parse`-Aufrufe). "Pull latest" führt `git pull --ff-only` im
+  Geschwister-Repo aus (schlägt sauber fehl, statt zu mergen/rebasen, wenn
+  es abweicht — etwa weil jemand Dateien direkt auf dem Host bearbeitet
+  hat), "Rebuild image" baut frische Images für einen Spieltyp aus dem
+  aktuell ausgecheckten Stand, und "Recreate from latest image" versetzt
+  eine einzelne Instanz auf diese Images, ohne ihre Ports, Volumes oder
+  Konfiguration anzutasten. Pull und Rebuild teilen sich eine Sperre pro
+  Spieltyp, damit sie nie gleichzeitig auf demselben Arbeitsverzeichnis
+  laufen. **Einschränkung**: erkennt nur committete Änderungen an den
   Geschwister-Repos, keine uncommitteten lokalen Bearbeitungen.
 - **Automatische Host-Bereinigung**: eine tägliche Bereinigung verwaister
   Images (derselbe Vorgang, der bereits nach jedem Build läuft), damit die

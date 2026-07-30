@@ -662,6 +662,16 @@ button.btn-danger:hover:not(:disabled) {
   margin: 0;
 }
 
+.image-status-actions {
+  display: flex;
+  gap: .4rem;
+  flex-wrap: wrap;
+}
+
+.image-status-actions button {
+  flex: 1;
+}
+
 .maintenance-log-wrap {
   overflow-x: auto;
 }

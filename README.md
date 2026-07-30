@@ -70,10 +70,15 @@ independent behaviors, all configurable from the **Maintenance** tab:
   commit of `arma_server`/`proyect_zomboid` its image was built from. The
   Maintenance tab compares that against each repo's current `HEAD` and flags
   outdated instances live (no polling needed — it's just a couple of
-  `git rev-parse` calls) — "Rebuild image" builds fresh images for a game
-  type, and "Recreate from latest image" swaps an individual instance onto
-  them without touching its ports, volumes, or config. **Limitation**: only
-  detects committed changes to the sibling repos, not uncommitted local edits.
+  `git rev-parse` calls). "Pull latest" runs `git pull --ff-only` on the
+  sibling repo (fails cleanly instead of merging/rebasing if it has
+  diverged — e.g. someone hand-edited files on the host), "Rebuild image"
+  builds fresh images for a game type from whatever is currently checked
+  out, and "Recreate from latest image" swaps an individual instance onto
+  them without touching its ports, volumes, or config. Pull and rebuild
+  share a lock per game type so they can never run concurrently against the
+  same working tree. **Limitation**: only detects committed changes to the
+  sibling repos, not uncommitted local edits.
 - **Automated host cleanup**: a daily dangling-image prune (same operation
   already run after every build), so cleanup doesn't depend on you
   remembering to do it manually.

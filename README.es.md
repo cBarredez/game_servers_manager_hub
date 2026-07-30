@@ -84,12 +84,17 @@ pestaña **Maintenance**:
   con el commit de git de `arma_server`/`proyect_zomboid` con el que se
   construyó su imagen. La pestaña Maintenance compara eso con el `HEAD`
   actual de cada repo y marca en vivo las instancias desactualizadas (sin
-  necesidad de sondeo — son solo un par de llamadas a `git rev-parse`) —
-  "Rebuild image" construye imágenes nuevas para un tipo de juego, y
-  "Recreate from latest image" cambia una instancia concreta a esas
-  imágenes sin tocar sus puertos, volúmenes ni configuración.
-  **Limitación**: solo detecta cambios confirmados (committed) en los repos
-  hermanos, no ediciones locales sin confirmar.
+  necesidad de sondeo — son solo un par de llamadas a `git rev-parse`).
+  "Pull latest" ejecuta `git pull --ff-only` en el repo hermano (falla de
+  forma limpia en vez de fusionar/rebasar si ha divergido — por ejemplo, si
+  alguien editó archivos a mano en el host), "Rebuild image" construye
+  imágenes nuevas para un tipo de juego a partir de lo que haya actualmente
+  descargado, y "Recreate from latest image" cambia una instancia concreta a
+  esas imágenes sin tocar sus puertos, volúmenes ni configuración. Pull y
+  rebuild comparten un bloqueo por tipo de juego para que nunca se ejecuten
+  a la vez sobre el mismo árbol de trabajo. **Limitación**: solo detecta
+  cambios confirmados (committed) en los repos hermanos, no ediciones
+  locales sin confirmar.
 - **Limpieza automática del host**: una purga diaria de imágenes huérfanas
   (la misma operación que ya se ejecuta tras cada compilación), para que la
   limpieza no dependa de que te acuerdes de hacerla manualmente.

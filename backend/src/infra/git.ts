@@ -21,3 +21,33 @@ export async function getHeadCommit(repoDir: string): Promise<string | null> {
     return null;
   }
 }
+
+export interface PullResult {
+  success: boolean;
+  /** Raw git output (or the error message) — surfaced to the UI as-is so a merge conflict or diverged-branch failure is actually readable, not swallowed. */
+  message: string;
+}
+
+/**
+ * Pulls the latest commits for a sibling repo. Uses --ff-only deliberately:
+ * a hub button is not the place to auto-create a merge commit or attempt a
+ * rebase — if the local branch has diverged (e.g. someone edited the repo
+ * directly on this host), this fails cleanly with git's own explanation
+ * instead of silently merging or conflicting.
+ */
+export async function pull(repoDir: string): Promise<PullResult> {
+  try {
+    // --no-edit/-q keep it non-interactive; a hard timeout guarantees this
+    // can never hang the hub process indefinitely regardless of the cause
+    // (e.g. a credential prompt on a misconfigured remote).
+    const { stdout, stderr } = await execFileAsync("git", ["-C", repoDir, "pull", "--ff-only", "-q"], {
+      timeout: 20_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    return { success: true, message: (stdout || stderr || "already up to date").trim() };
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string; message: string; killed?: boolean };
+    const message = err.killed ? "git pull timed out after 20s" : err.stderr || err.stdout || err.message;
+    return { success: false, message: message.trim() };
+  }
+}

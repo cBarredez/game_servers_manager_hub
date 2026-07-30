@@ -46,4 +46,17 @@ export async function registerMaintenanceRoutes(app: FastifyInstance, ctx: AppCo
       return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
+
+  app.post<{ Params: { gameType: string } }>("/api/maintenance/images/:gameType/pull", async (req, reply) => {
+    const { gameType } = req.params;
+    if (!isGameType(gameType)) {
+      return reply.code(400).send({ error: "gameType must be one of: " + Object.keys(templates).join(", ") });
+    }
+    try {
+      const result = await ctx.instances.pullLatest(gameType);
+      return reply.code(result.success ? 200 : 409).send(result);
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 }

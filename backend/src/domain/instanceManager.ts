@@ -7,7 +7,7 @@ import { SqliteStore } from "../infra/sqliteStore.js";
 import { PortAllocator } from "../infra/portAllocator.js";
 import * as podman from "../infra/podman.js";
 import { allPortsFree } from "../infra/portCheck.js";
-import { getHeadCommit } from "../infra/git.js";
+import { getHeadCommit, pull } from "../infra/git.js";
 import { getTemplate, listTemplates } from "../templates/index.js";
 import type { GameTemplate, PortMap } from "../templates/types.js";
 import { makeSlug } from "./slug.js";
@@ -64,6 +64,7 @@ export interface GameImageStatus {
   builtAt: string | null;
   outdatedInstances: OutdatedInstanceRef[];
   rebuilding: boolean;
+  pulling: boolean;
 }
 
 export interface InstanceMetrics {
@@ -79,7 +80,8 @@ function gameImagesKey(gameType: GameType): string {
 
 export class InstanceManager {
   /** Game types with a rebuild currently in flight, so a second click (or a second browser tab) can't kick off a duplicate concurrent `podman build`. */
-  private readonly rebuildingGameTypes = new Set<GameType>();
+  /** Which operation (if any) is in flight for a game type — pull and rebuild share this lock so a rebuild can never read a working tree that a concurrent pull is still rewriting, and vice versa. */
+  private readonly activeGameOperations = new Map<GameType, "pull" | "rebuild">();
 
   constructor(
     private readonly store: SqliteStore,
@@ -365,12 +367,17 @@ export class InstanceManager {
     this.store.deleteInstance(id);
   }
 
+  private acquireGameOperation(gameType: GameType, kind: "pull" | "rebuild"): void {
+    const active = this.activeGameOperations.get(gameType);
+    if (active) {
+      throw new Error(`a ${active} for ${gameType} is already in progress — wait for it to finish first`);
+    }
+    this.activeGameOperations.set(gameType, kind);
+  }
+
   /** Builds both images for a game type unconditionally (unlike ensureImages, which skips if the tag already exists) and records the source commit that produced them. */
   async rebuildImages(gameType: GameType): Promise<GameImagesRecord> {
-    if (this.rebuildingGameTypes.has(gameType)) {
-      throw new Error(`a rebuild for ${gameType} is already in progress — wait for it to finish first`);
-    }
-    this.rebuildingGameTypes.add(gameType);
+    this.acquireGameOperation(gameType, "rebuild");
     try {
       const template = getTemplate(gameType);
       const contextDir = path.join(this.reposRoot, template.repoDirName);
@@ -397,13 +404,39 @@ export class InstanceManager {
       });
       return record;
     } finally {
-      this.rebuildingGameTypes.delete(gameType);
+      this.activeGameOperations.delete(gameType);
+    }
+  }
+
+  /** Pulls the latest commits for a game's sibling repo (--ff-only — never merges/rebases). Does NOT rebuild automatically; the image-status commit comparison will simply show the game as having a newer source commit than what's built, same as any other upstream change. */
+  async pullLatest(gameType: GameType): Promise<{ success: boolean; message: string }> {
+    this.acquireGameOperation(gameType, "pull");
+    try {
+      const template = getTemplate(gameType);
+      const contextDir = path.join(this.reposRoot, template.repoDirName);
+      const result = await pull(contextDir);
+      this.store.insertMaintenanceLog({
+        scope: "image",
+        instanceId: null,
+        gameType,
+        action: "git-pull",
+        detail: result.message,
+        success: result.success,
+      });
+      return result;
+    } finally {
+      this.activeGameOperations.delete(gameType);
     }
   }
 
   /** Whether a rebuild for this game type is currently running, so the UI can show a persistent "in progress" state across page reloads instead of relying on local button state alone. */
   isRebuilding(gameType: GameType): boolean {
-    return this.rebuildingGameTypes.has(gameType);
+    return this.activeGameOperations.get(gameType) === "rebuild";
+  }
+
+  /** Same idea as isRebuilding(), for a git pull in progress. */
+  isPulling(gameType: GameType): boolean {
+    return this.activeGameOperations.get(gameType) === "pull";
   }
 
   /** Live comparison of each game's current source commit against what every existing instance was built from — no periodic job needed, this is cheap enough to compute on demand. */
@@ -431,6 +464,7 @@ export class InstanceManager {
           builtAt: record?.builtAt ?? null,
           outdatedInstances,
           rebuilding: this.isRebuilding(template.gameType),
+          pulling: this.isPulling(template.gameType),
         };
       }),
     );

@@ -3,6 +3,7 @@ import {
   getImageStatus,
   getMaintenanceSettings,
   listMaintenanceLog,
+  pullLatest,
   rebuildImage,
   updateMaintenanceSettings,
   type GameImageStatus,
@@ -20,6 +21,7 @@ export function Maintenance() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [rebuilding, setRebuilding] = useState<string | null>(null);
+  const [pulling, setPulling] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -72,6 +74,28 @@ export function Maintenance() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setRebuilding(null);
+    }
+  };
+
+  const doPull = async (gameType: string) => {
+    setPulling(gameType);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const result = await pullLatest(gameType as GameImageStatus["gameType"]);
+      await refresh();
+      if (result.success) {
+        setSuccessMessage(
+          `${gameType}: ${result.message || "already up to date"}. Click "Rebuild image" to build the ` +
+            `updated code into a new image.`,
+        );
+      } else {
+        setError(`${gameType} pull failed: ${result.message}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPulling(null);
     }
   };
 
@@ -148,14 +172,26 @@ export function Maintenance() {
                   {game.outdatedInstances.length} instance{game.outdatedInstances.length === 1 ? "" : "s"} outdated
                 </p>
               )}
-              <button
-                disabled={rebuilding === game.gameType || game.rebuilding}
-                onClick={() => doRebuild(game.gameType)}
-              >
-                {rebuilding === game.gameType || game.rebuilding
-                  ? "Rebuilding… (this can take a few minutes, especially the first time)"
-                  : "Rebuild image"}
-              </button>
+              <div className="image-status-actions">
+                <button
+                  disabled={
+                    pulling === game.gameType || rebuilding === game.gameType || game.pulling || game.rebuilding
+                  }
+                  onClick={() => doPull(game.gameType)}
+                >
+                  {pulling === game.gameType || game.pulling ? "Pulling…" : "Pull latest"}
+                </button>
+                <button
+                  disabled={
+                    rebuilding === game.gameType || pulling === game.gameType || game.rebuilding || game.pulling
+                  }
+                  onClick={() => doRebuild(game.gameType)}
+                >
+                  {rebuilding === game.gameType || game.rebuilding
+                    ? "Rebuilding… (this can take a few minutes, especially the first time)"
+                    : "Rebuild image"}
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -157,6 +157,7 @@ export interface GameImageStatus {
   builtAt: string | null;
   outdatedInstances: { id: string; name: string }[];
   rebuilding: boolean;
+  pulling: boolean;
 }
 
 export const getImageStatus = (): Promise<{ games: GameImageStatus[] }> =>
@@ -164,6 +165,9 @@ export const getImageStatus = (): Promise<{ games: GameImageStatus[] }> =>
 
 export const rebuildImage = (gameType: GameType): Promise<{ apiCommit: string | null; builtAt: string }> =>
   POST(`/api/maintenance/images/${gameType}/rebuild`);
+
+export const pullLatest = (gameType: GameType): Promise<{ success: boolean; message: string }> =>
+  POST(`/api/maintenance/images/${gameType}/pull`);
 
 export function statusPresentation(status: InstanceStatus): {
   label: string;
