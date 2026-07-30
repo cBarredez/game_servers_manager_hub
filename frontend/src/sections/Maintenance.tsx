@@ -140,8 +140,13 @@ export function Maintenance() {
                   {game.outdatedInstances.length} instance{game.outdatedInstances.length === 1 ? "" : "s"} outdated
                 </p>
               )}
-              <button disabled={rebuilding === game.gameType} onClick={() => doRebuild(game.gameType)}>
-                {rebuilding === game.gameType ? "Rebuilding…" : "Rebuild image"}
+              <button
+                disabled={rebuilding === game.gameType || game.rebuilding}
+                onClick={() => doRebuild(game.gameType)}
+              >
+                {rebuilding === game.gameType || game.rebuilding
+                  ? "Rebuilding… (this can take a few minutes, especially the first time)"
+                  : "Rebuild image"}
               </button>
             </div>
           ))}

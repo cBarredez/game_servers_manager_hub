@@ -120,6 +120,7 @@ export interface GameImageStatus {
   builtCommit: string | null;
   builtAt: string | null;
   outdatedInstances: { id: string; name: string }[];
+  rebuilding: boolean;
 }
 
 export const getImageStatus = (): Promise<{ games: GameImageStatus[] }> =>

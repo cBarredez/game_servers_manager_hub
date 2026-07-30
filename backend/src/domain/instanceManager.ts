@@ -63,6 +63,7 @@ export interface GameImageStatus {
   builtCommit: string | null;
   builtAt: string | null;
   outdatedInstances: OutdatedInstanceRef[];
+  rebuilding: boolean;
 }
 
 function gameImagesKey(gameType: GameType): string {
@@ -70,6 +71,9 @@ function gameImagesKey(gameType: GameType): string {
 }
 
 export class InstanceManager {
+  /** Game types with a rebuild currently in flight, so a second click (or a second browser tab) can't kick off a duplicate concurrent `podman build`. */
+  private readonly rebuildingGameTypes = new Set<GameType>();
+
   constructor(
     private readonly store: SqliteStore,
     private readonly allocator: PortAllocator,
@@ -321,23 +325,40 @@ export class InstanceManager {
 
   /** Builds both images for a game type unconditionally (unlike ensureImages, which skips if the tag already exists) and records the source commit that produced them. */
   async rebuildImages(gameType: GameType): Promise<GameImagesRecord> {
-    const template = getTemplate(gameType);
-    const contextDir = path.join(this.reposRoot, template.repoDirName);
-    await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api);
-    await podman.build(contextDir, path.join(contextDir, "Containerfile.frontend"), template.images.frontend);
+    if (this.rebuildingGameTypes.has(gameType)) {
+      throw new Error(`a rebuild for ${gameType} is already in progress — wait for it to finish first`);
+    }
+    this.rebuildingGameTypes.add(gameType);
+    try {
+      const template = getTemplate(gameType);
+      const contextDir = path.join(this.reposRoot, template.repoDirName);
+      await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api);
+      await podman.build(contextDir, path.join(contextDir, "Containerfile.frontend"), template.images.frontend);
 
-    const commit = await getHeadCommit(contextDir);
-    const record: GameImagesRecord = { apiCommit: commit, frontendCommit: commit, builtAt: new Date().toISOString() };
-    this.store.setJson(gameImagesKey(gameType), record);
-    this.store.insertMaintenanceLog({
-      scope: "image",
-      instanceId: null,
-      gameType,
-      action: "image-rebuild",
-      detail: commit ? `built from commit ${commit.slice(0, 12)}` : "built (source is not a git repo)",
-      success: true,
-    });
-    return record;
+      const commit = await getHeadCommit(contextDir);
+      const record: GameImagesRecord = {
+        apiCommit: commit,
+        frontendCommit: commit,
+        builtAt: new Date().toISOString(),
+      };
+      this.store.setJson(gameImagesKey(gameType), record);
+      this.store.insertMaintenanceLog({
+        scope: "image",
+        instanceId: null,
+        gameType,
+        action: "image-rebuild",
+        detail: commit ? `built from commit ${commit.slice(0, 12)}` : "built (source is not a git repo)",
+        success: true,
+      });
+      return record;
+    } finally {
+      this.rebuildingGameTypes.delete(gameType);
+    }
+  }
+
+  /** Whether a rebuild for this game type is currently running, so the UI can show a persistent "in progress" state across page reloads instead of relying on local button state alone. */
+  isRebuilding(gameType: GameType): boolean {
+    return this.rebuildingGameTypes.has(gameType);
   }
 
   /** Live comparison of each game's current source commit against what every existing instance was built from — no periodic job needed, this is cheap enough to compute on demand. */
@@ -364,6 +385,7 @@ export class InstanceManager {
           builtCommit: record?.apiCommit ?? null,
           builtAt: record?.builtAt ?? null,
           outdatedInstances,
+          rebuilding: this.isRebuilding(template.gameType),
         };
       }),
     );
