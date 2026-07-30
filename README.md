@@ -38,6 +38,38 @@ as the Podman build context for every instance the hub creates.
 - View an instance's admin login credentials from its card at any time (read
   live from that instance's own generated config — never stored a second time).
 - Game cover art per instance card.
+- Unattended maintenance: auto-restart on crash, opt-in daily scheduled
+  restarts, source-update tracking with one-click image rebuild + instance
+  recreate, and daily dangling-image cleanup — see [Maintenance](#maintenance) below.
+
+## Maintenance
+
+A background scheduler (`infra/scheduler.ts`, ticks every 60s) drives four
+independent behaviors, all configurable from the **Maintenance** tab:
+
+- **Auto-restart on crash**: if an instance's containers stop unexpectedly
+  while it's supposed to be running (i.e. nobody clicked Stop), the hub
+  restarts it automatically, up to a configurable attempt limit — past that,
+  it stops trying and leaves the instance visibly `degraded` rather than
+  restart-looping forever. A manual Start/Restart resets the counter.
+- **Scheduled restarts**: optional per-instance daily restart time
+  (`HH:MM`, host-local), set from the instance card. Fires at most once per
+  day.
+- **Image update tracking**: the hub stamps every instance with the git
+  commit of `arma_server`/`proyect_zomboid` its image was built from. The
+  Maintenance tab compares that against each repo's current `HEAD` and flags
+  outdated instances live (no polling needed — it's just a couple of
+  `git rev-parse` calls) — "Rebuild image" builds fresh images for a game
+  type, and "Recreate from latest image" swaps an individual instance onto
+  them without touching its ports, volumes, or config. **Limitation**: only
+  detects committed changes to the sibling repos, not uncommitted local edits.
+- **Automated host cleanup**: a daily dangling-image prune (same operation
+  already run after every build), so cleanup doesn't depend on you
+  remembering to do it manually.
+
+Every maintenance action — auto-restarts, scheduled restarts, rebuilds,
+recreates, cleanups — is recorded and visible in the Maintenance tab's
+activity log.
 
 ## Architecture
 

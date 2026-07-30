@@ -47,6 +47,44 @@ crea el hub.
   tarjeta en cualquier momento (se leen en vivo desde la configuración ya
   generada de esa instancia — nunca se guardan por duplicado).
 - Imagen de portada del juego en cada tarjeta de instancia.
+- Mantenimiento desatendido: reinicio automático ante fallos, reinicios
+  programados diarios opcionales, seguimiento de actualizaciones del código
+  fuente con reconstrucción de imagen y recreación de instancia con un clic,
+  y limpieza diaria de imágenes huérfanas — ver [Mantenimiento](#mantenimiento) más abajo.
+
+## Mantenimiento
+
+Un planificador en segundo plano (`infra/scheduler.ts`, se ejecuta cada 60s)
+gestiona cuatro comportamientos independientes, todos configurables desde la
+pestaña **Maintenance**:
+
+- **Reinicio automático ante fallos**: si los contenedores de una instancia
+  se detienen inesperadamente mientras se supone que debería estar en
+  ejecución (es decir, nadie pulsó Stop), el hub la reinicia
+  automáticamente, hasta un límite de intentos configurable — superado ese
+  límite, deja de intentarlo y muestra la instancia visiblemente
+  `degraded` en vez de reiniciarla en bucle indefinidamente. Un Start/Restart
+  manual reinicia el contador.
+- **Reinicios programados**: hora de reinicio diario opcional por instancia
+  (`HH:MM`, hora local del host), configurable desde la tarjeta de la
+  instancia. Se dispara como máximo una vez al día.
+- **Seguimiento de actualizaciones de imagen**: el hub marca cada instancia
+  con el commit de git de `arma_server`/`proyect_zomboid` con el que se
+  construyó su imagen. La pestaña Maintenance compara eso con el `HEAD`
+  actual de cada repo y marca en vivo las instancias desactualizadas (sin
+  necesidad de sondeo — son solo un par de llamadas a `git rev-parse`) —
+  "Rebuild image" construye imágenes nuevas para un tipo de juego, y
+  "Recreate from latest image" cambia una instancia concreta a esas
+  imágenes sin tocar sus puertos, volúmenes ni configuración.
+  **Limitación**: solo detecta cambios confirmados (committed) en los repos
+  hermanos, no ediciones locales sin confirmar.
+- **Limpieza automática del host**: una purga diaria de imágenes huérfanas
+  (la misma operación que ya se ejecuta tras cada compilación), para que la
+  limpieza no dependa de que te acuerdes de hacerla manualmente.
+
+Toda acción de mantenimiento —reinicios automáticos, reinicios programados,
+reconstrucciones, recreaciones, limpiezas— queda registrada y visible en el
+registro de actividad de la pestaña Maintenance.
 
 ## Arquitectura
 

@@ -8,15 +8,21 @@ const GAME_IMAGE: Record<string, string> = {
 
 export function InstanceCard({
   instance,
+  outdated,
   onStart,
   onStop,
   onRestart,
+  onRecreate,
+  onSetSchedule,
   onDelete,
 }: {
   instance: InstanceSummary;
+  outdated: boolean;
   onStart: (id: string) => Promise<void>;
   onStop: (id: string) => Promise<void>;
   onRestart: (id: string) => Promise<void>;
+  onRecreate: (id: string) => Promise<void>;
+  onSetSchedule: (id: string, time: string | null) => Promise<void>;
   onDelete: (id: string, removeVolumes: boolean) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -73,6 +79,8 @@ export function InstanceCard({
         <span className={`status-pill status-${presentation.tone}`}>{presentation.label}</span>
       </div>
 
+      {outdated && <p className="image-outdated-badge">Outdated image — a newer build is available</p>}
+
       {error && (
         <p role="alert" className="instance-error">
           {error}
@@ -108,6 +116,25 @@ export function InstanceCard({
         </dl>
       )}
 
+      <label className="instance-schedule-row">
+        Daily restart
+        <input
+          type="time"
+          value={instance.restartSchedule ?? ""}
+          onChange={(e) => run(() => onSetSchedule(instance.id, e.target.value || null))}
+        />
+        {instance.restartSchedule && (
+          <button
+            type="button"
+            className="btn-icon"
+            title="Clear scheduled restart"
+            onClick={() => run(() => onSetSchedule(instance.id, null))}
+          >
+            ✕
+          </button>
+        )}
+      </label>
+
       <div className="instance-actions">
         <a href={instance.panelUrl} target="_blank" rel="noreferrer" className="btn-primary">
           Open panel
@@ -130,6 +157,11 @@ export function InstanceCard({
             onClick={() => run(() => onStart(instance.id))}
           >
             Start
+          </button>
+        )}
+        {outdated && (
+          <button disabled={busy} onClick={() => run(() => onRecreate(instance.id))}>
+            Recreate from latest image
           </button>
         )}
 

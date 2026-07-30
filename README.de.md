@@ -47,6 +47,42 @@ verwendet.
   bereits generierten Konfiguration dieser Instanz gelesen — nie ein zweites
   Mal gespeichert).
 - Spiel-Titelbild auf jeder Instanzkarte.
+- Unbeaufsichtigte Wartung: automatischer Neustart bei Absturz, optionale
+  tägliche geplante Neustarts, Verfolgung von Quellcode-Updates mit
+  Image-Neuerstellung und Instanz-Recreate per Klick, sowie tägliche
+  Bereinigung verwaister Images — siehe [Wartung](#wartung) weiter unten.
+
+## Wartung
+
+Ein Hintergrund-Scheduler (`infra/scheduler.ts`, tickt alle 60s) steuert vier
+unabhängige Funktionen, alle über den Tab **Maintenance** konfigurierbar:
+
+- **Automatischer Neustart bei Absturz**: Wenn die Container einer Instanz
+  unerwartet stoppen, während sie eigentlich laufen sollte (d. h. niemand hat
+  auf Stop geklickt), startet der Hub sie automatisch neu, bis zu einem
+  konfigurierbaren Versuchslimit — danach wird es aufgegeben und die Instanz
+  bleibt sichtbar `degraded`, statt endlos neu gestartet zu werden. Ein
+  manueller Start/Restart setzt den Zähler zurück.
+- **Geplante Neustarts**: optionale tägliche Neustartzeit pro Instanz
+  (`HH:MM`, lokale Host-Zeit), einstellbar über die Instanzkarte. Löst
+  höchstens einmal pro Tag aus.
+- **Verfolgung von Image-Updates**: Der Hub vermerkt bei jeder Instanz den
+  Git-Commit von `arma_server`/`proyect_zomboid`, aus dem ihr Image gebaut
+  wurde. Der Maintenance-Tab vergleicht das live mit dem aktuellen `HEAD`
+  jedes Repos und markiert veraltete Instanzen (kein Polling nötig — nur ein
+  paar `git rev-parse`-Aufrufe) — "Rebuild image" baut frische Images für
+  einen Spieltyp, und "Recreate from latest image" versetzt eine einzelne
+  Instanz auf diese Images, ohne ihre Ports, Volumes oder Konfiguration
+  anzutasten. **Einschränkung**: erkennt nur committete Änderungen an den
+  Geschwister-Repos, keine uncommitteten lokalen Bearbeitungen.
+- **Automatische Host-Bereinigung**: eine tägliche Bereinigung verwaister
+  Images (derselbe Vorgang, der bereits nach jedem Build läuft), damit die
+  Bereinigung nicht davon abhängt, dass Sie sich daran erinnern, sie manuell
+  auszuführen.
+
+Jede Wartungsaktion — automatische Neustarts, geplante Neustarts,
+Neuerstellungen, Recreates, Bereinigungen — wird protokolliert und ist im
+Aktivitätsprotokoll des Maintenance-Tabs sichtbar.
 
 ## Architektur
 

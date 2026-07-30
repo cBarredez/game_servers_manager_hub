@@ -3,7 +3,9 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config/index.js";
 import { SqliteStore } from "./infra/sqliteStore.js";
 import { PortAllocator } from "./infra/portAllocator.js";
+import { startMaintenanceScheduler } from "./infra/scheduler.js";
 import { InstanceManager } from "./domain/instanceManager.js";
+import { MaintenanceService } from "./domain/maintenanceService.js";
 import { buildApp, type AppContext } from "./app.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,9 +21,12 @@ async function main(): Promise<void> {
   const store = new SqliteStore(path.join(dataDir, "hub.sqlite3"));
   const allocator = new PortAllocator(store, config.ports.webBase);
   const instances = new InstanceManager(store, allocator, reposRoot, dataDir);
+  const maintenance = new MaintenanceService(store, instances);
 
-  const ctx: AppContext = { config, store, instances };
+  const ctx: AppContext = { config, store, instances, maintenance };
   const app = await buildApp(ctx);
+
+  startMaintenanceScheduler(maintenance);
 
   await app.listen({ port: config.web.port, host: config.web.bindIp });
 }

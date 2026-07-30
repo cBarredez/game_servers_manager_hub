@@ -81,13 +81,29 @@ export async function imageExists(tag: string): Promise<boolean> {
   }
 }
 
+/**
+ * Removes dangling (untagged) images and returns the IDs removed, so callers
+ * can report a meaningful count instead of a silent best-effort call.
+ */
+export async function pruneDangling(): Promise<string[]> {
+  try {
+    const output = await podman(["image", "prune", "-f"]);
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export async function build(contextDir: string, containerfile: string, tag: string): Promise<void> {
   await podman(["build", "--file", containerfile, "--tag", tag, contextDir]);
   // Multi-stage Containerfiles (both arma3 and pz use them) leave the
   // intermediate build-stage image dangling (untagged) after each build —
   // harmless but it silently eats disk space over time, so sweep it up
   // immediately rather than letting it accumulate across future rebuilds.
-  await podmanBestEffort(["image", "prune", "-f"]);
+  await pruneDangling();
 }
 
 export async function run(args: string[]): Promise<void> {

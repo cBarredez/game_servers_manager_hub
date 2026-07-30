@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   deleteInstance,
+  getImageStatus,
   listInstances,
   listTemplates,
+  recreateInstance,
   restartInstance,
+  setInstanceSchedule,
   startInstance,
   stopInstance,
   type GameTemplateInfo,
@@ -17,14 +20,16 @@ const POLL_MS = 5000;
 export function Dashboard() {
   const [instances, setInstances] = useState<InstanceSummary[]>([]);
   const [templates, setTemplates] = useState<GameTemplateInfo[]>([]);
+  const [outdatedIds, setOutdatedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewInstance, setShowNewInstance] = useState(false);
 
   const refresh = async () => {
     try {
-      const res = await listInstances();
-      setInstances(res.instances);
+      const [instancesRes, imageRes] = await Promise.all([listInstances(), getImageStatus()]);
+      setInstances(instancesRes.instances);
+      setOutdatedIds(new Set(imageRes.games.flatMap((g) => g.outdatedInstances.map((i) => i.id))));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -63,6 +68,7 @@ export function Dashboard() {
             <InstanceCard
               key={instance.id}
               instance={instance}
+              outdated={outdatedIds.has(instance.id)}
               onStart={async (id) => {
                 await startInstance(id);
                 await refresh();
@@ -73,6 +79,14 @@ export function Dashboard() {
               }}
               onRestart={async (id) => {
                 await restartInstance(id);
+                await refresh();
+              }}
+              onRecreate={async (id) => {
+                await recreateInstance(id);
+                await refresh();
+              }}
+              onSetSchedule={async (id, time) => {
+                await setInstanceSchedule(id, time);
                 await refresh();
               }}
               onDelete={async (id, removeVolumes) => {

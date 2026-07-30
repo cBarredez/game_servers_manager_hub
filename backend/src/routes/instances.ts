@@ -83,6 +83,27 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
     }
   });
 
+  app.post<{ Params: { id: string } }>("/api/instances/:id/recreate", async (req, reply) => {
+    try {
+      await ctx.instances.recreate(req.params.id);
+      return { ok: true };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put<{ Params: { id: string }; Body: { time: string | null } }>(
+    "/api/instances/:id/schedule",
+    async (req, reply) => {
+      try {
+        ctx.instances.setSchedule(req.params.id, req.body?.time ?? null);
+        return { ok: true };
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
+
   app.delete<{ Params: { id: string }; Body: { removeVolumes?: boolean } }>(
     "/api/instances/:id",
     async (req, reply) => {

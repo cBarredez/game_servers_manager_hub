@@ -7,7 +7,8 @@ import { SqliteStore } from "../infra/sqliteStore.js";
 import { PortAllocator } from "../infra/portAllocator.js";
 import * as podman from "../infra/podman.js";
 import { allPortsFree } from "../infra/portCheck.js";
-import { getTemplate } from "../templates/index.js";
+import { getHeadCommit } from "../infra/git.js";
+import { getTemplate, listTemplates } from "../templates/index.js";
 import type { GameTemplate, PortMap } from "../templates/types.js";
 import { makeSlug } from "./slug.js";
 
@@ -25,6 +26,11 @@ export interface InstanceSummary {
   ports: PortMap;
   panelUrl: string;
   createdAt: string;
+  memoryMb: number;
+  diskGb: number;
+  desiredState: InstanceRow["desiredState"];
+  restartSchedule: string | null;
+  crashRestartCount: number;
 }
 
 export interface CreateInstanceResult {
@@ -37,6 +43,30 @@ export interface CreateInstanceResult {
 export interface InstanceCredentials {
   username: string;
   password: string;
+}
+
+interface GameImagesRecord {
+  apiCommit: string | null;
+  frontendCommit: string | null;
+  builtAt: string;
+}
+
+interface OutdatedInstanceRef {
+  id: string;
+  name: string;
+}
+
+export interface GameImageStatus {
+  gameType: GameType;
+  displayName: string;
+  currentCommit: string | null;
+  builtCommit: string | null;
+  builtAt: string | null;
+  outdatedInstances: OutdatedInstanceRef[];
+}
+
+function gameImagesKey(gameType: GameType): string {
+  return `game-images:${gameType}`;
 }
 
 export class InstanceManager {
@@ -63,6 +93,9 @@ export class InstanceManager {
     const slug = makeSlug(name);
     const { webPort, ports } = await this.allocateFreePorts(template, gameType);
 
+    const configDir = path.join(this.instanceDir(slug), "config");
+    const ctx = { id, slug, name, mock, configDir, memoryMb, diskGb };
+
     this.store.insertInstance({
       id,
       slug,
@@ -71,10 +104,13 @@ export class InstanceManager {
       lifecycle: "creating",
       ports: JSON.stringify(ports),
       errorMessage: null,
+      memoryMb,
+      diskGb,
+      mock,
+      desiredState: "running",
+      imageCommitApi: null,
+      imageCommitFrontend: null,
     });
-
-    const configDir = path.join(this.instanceDir(slug), "config");
-    const ctx = { id, slug, name, mock, configDir, memoryMb, diskGb };
 
     try {
       await mkdir(configDir, { recursive: true });
@@ -83,6 +119,8 @@ export class InstanceManager {
       await writeFile(path.join(configDir, "manager.secrets.toml"), secrets.content, "utf-8");
 
       await this.ensureImages(template);
+      const imageRecord = this.store.getJson<GameImagesRecord>(gameImagesKey(gameType));
+      this.store.setImageCommits(id, imageRecord?.apiCommit ?? null, imageRecord?.frontendCommit ?? null);
 
       const network = template.networkName(slug);
       await podman.networkCreate(network);
@@ -173,12 +211,15 @@ export class InstanceManager {
     const names = template.containerNames(row.slug);
     await podman.start(names.api);
     await podman.start(names.frontend);
+    this.store.setDesiredState(id, "running");
+    this.store.resetCrashRestartCount(id);
   }
 
   async stop(id: string): Promise<void> {
     const row = this.requireRow(id);
     const template = getTemplate(row.gameType);
     const names = template.containerNames(row.slug);
+    this.store.setDesiredState(id, "stopped");
     await podman.stop(names.frontend);
     await podman.stop(names.api);
   }
@@ -189,6 +230,75 @@ export class InstanceManager {
     const names = template.containerNames(row.slug);
     await podman.restart(names.api);
     await podman.restart(names.frontend);
+    this.store.resetCrashRestartCount(id);
+  }
+
+  /**
+   * Same as restart(), but for the maintenance scheduler's crash-recovery
+   * path: it does NOT reset crashRestartCount, since the scheduler is the
+   * one incrementing it (via store.recordCrashRestart) to enforce a max
+   * retry budget across repeated failures.
+   */
+  async restartForRecovery(id: string): Promise<void> {
+    const row = this.requireRow(id);
+    const template = getTemplate(row.gameType);
+    const names = template.containerNames(row.slug);
+    await podman.restart(names.api);
+    await podman.restart(names.frontend);
+  }
+
+  /** Whether both of an instance's containers are currently running. */
+  async isRunning(row: InstanceRow): Promise<boolean> {
+    const template = getTemplate(row.gameType);
+    const names = template.containerNames(row.slug);
+    const [apiStatus, frontendStatus] = await Promise.all([
+      podman.containerStatus(names.api),
+      podman.containerStatus(names.frontend),
+    ]);
+    return apiStatus === "running" && frontendStatus === "running";
+  }
+
+  /** Like restart, but swaps the containers onto whatever image currently carries the game's tag (e.g. after rebuildImages), instead of reusing the original container's image. */
+  async recreate(id: string): Promise<void> {
+    const row = this.requireRow(id);
+    const template = getTemplate(row.gameType);
+    const ports = JSON.parse(row.ports) as PortMap;
+    const configDir = path.join(this.instanceDir(row.slug), "config");
+    const ctx = {
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      mock: row.mock,
+      configDir,
+      memoryMb: row.memoryMb,
+      diskGb: row.diskGb,
+    };
+    const names = template.containerNames(row.slug);
+
+    await podman.removeContainer(names.frontend);
+    await podman.removeContainer(names.api);
+    await podman.run([...template.apiRunArgs(ctx, ports), template.images.api]);
+    await podman.run([...template.frontendRunArgs(ctx, ports), template.images.frontend]);
+
+    const imageRecord = this.store.getJson<GameImagesRecord>(gameImagesKey(row.gameType));
+    this.store.setImageCommits(id, imageRecord?.apiCommit ?? null, imageRecord?.frontendCommit ?? null);
+    this.store.resetCrashRestartCount(id);
+    this.store.insertMaintenanceLog({
+      scope: "instance",
+      instanceId: id,
+      gameType: row.gameType,
+      action: "recreate",
+      detail: `recreated from current ${row.gameType} image`,
+      success: true,
+    });
+  }
+
+  setSchedule(id: string, time: string | null): void {
+    this.requireRow(id);
+    if (time !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw new Error('restart schedule must be "HH:MM" (24h) or null');
+    }
+    this.store.setRestartSchedule(id, time);
   }
 
   async delete(id: string, removeVolumes: boolean): Promise<void> {
@@ -209,13 +319,75 @@ export class InstanceManager {
     this.store.deleteInstance(id);
   }
 
+  /** Builds both images for a game type unconditionally (unlike ensureImages, which skips if the tag already exists) and records the source commit that produced them. */
+  async rebuildImages(gameType: GameType): Promise<GameImagesRecord> {
+    const template = getTemplate(gameType);
+    const contextDir = path.join(this.reposRoot, template.repoDirName);
+    await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api);
+    await podman.build(contextDir, path.join(contextDir, "Containerfile.frontend"), template.images.frontend);
+
+    const commit = await getHeadCommit(contextDir);
+    const record: GameImagesRecord = { apiCommit: commit, frontendCommit: commit, builtAt: new Date().toISOString() };
+    this.store.setJson(gameImagesKey(gameType), record);
+    this.store.insertMaintenanceLog({
+      scope: "image",
+      instanceId: null,
+      gameType,
+      action: "image-rebuild",
+      detail: commit ? `built from commit ${commit.slice(0, 12)}` : "built (source is not a git repo)",
+      success: true,
+    });
+    return record;
+  }
+
+  /** Live comparison of each game's current source commit against what every existing instance was built from — no periodic job needed, this is cheap enough to compute on demand. */
+  async imageStatus(): Promise<GameImageStatus[]> {
+    const rows = this.store.listInstances();
+    return Promise.all(
+      listTemplates().map(async (template) => {
+        const contextDir = path.join(this.reposRoot, template.repoDirName);
+        const currentCommit = await getHeadCommit(contextDir);
+        const record = this.store.getJson<GameImagesRecord>(gameImagesKey(template.gameType));
+        const outdatedInstances = rows
+          .filter(
+            (row) =>
+              row.gameType === template.gameType &&
+              row.lifecycle === "created" &&
+              currentCommit !== null &&
+              row.imageCommitApi !== currentCommit,
+          )
+          .map((row) => ({ id: row.id, name: row.name }));
+        return {
+          gameType: template.gameType,
+          displayName: template.displayName,
+          currentCommit,
+          builtCommit: record?.apiCommit ?? null,
+          builtAt: record?.builtAt ?? null,
+          outdatedInstances,
+        };
+      }),
+    );
+  }
+
   private async ensureImages(template: GameTemplate): Promise<void> {
     const contextDir = path.join(this.reposRoot, template.repoDirName);
-    if (!(await podman.imageExists(template.images.api))) {
+    const apiExists = await podman.imageExists(template.images.api);
+    const frontendExists = await podman.imageExists(template.images.frontend);
+    if (apiExists && frontendExists) return;
+
+    if (!apiExists) {
       await podman.build(contextDir, path.join(contextDir, "Containerfile.api"), template.images.api);
     }
-    if (!(await podman.imageExists(template.images.frontend))) {
+    if (!frontendExists) {
       await podman.build(contextDir, path.join(contextDir, "Containerfile.frontend"), template.images.frontend);
+    }
+    if (!this.store.getJson<GameImagesRecord>(gameImagesKey(template.gameType))) {
+      const commit = await getHeadCommit(contextDir);
+      this.store.setJson<GameImagesRecord>(gameImagesKey(template.gameType), {
+        apiCommit: commit,
+        frontendCommit: commit,
+        builtAt: new Date().toISOString(),
+      });
     }
   }
 
@@ -240,6 +412,11 @@ export class InstanceManager {
       ports,
       panelUrl: template.panelUrl(ports),
       createdAt: row.createdAt,
+      memoryMb: row.memoryMb,
+      diskGb: row.diskGb,
+      desiredState: row.desiredState,
+      restartSchedule: row.restartSchedule,
+      crashRestartCount: row.crashRestartCount,
     };
   }
 
