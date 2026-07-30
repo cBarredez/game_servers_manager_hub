@@ -111,7 +111,24 @@ Das Löschen einer Instanz entfernt ihre Container, ihr Netzwerk und
 
 ## Einrichtung
 
-Erfordert Node.js 24+ und Podman. Aus `hub/`:
+Erfordert Node.js 24+ und Podman, **sowie die beiden Game-Manager-Repos als
+Geschwisterverzeichnisse von `hub/` geklont** — der Hub enthält keinen
+eigenen Spielcode; er baut jede Instanz aus deren
+`Containerfile.api`/`Containerfile.frontend`:
+
+```bash
+git clone https://github.com/cBarredez/Arma3-server-manager.git arma_server
+git clone https://github.com/cBarredez/Proyect_zomboid_manager.git proyect_zomboid
+git clone https://github.com/cBarredez/game_servers_manager_hub.git hub
+```
+
+Alle drei müssen nebeneinander liegen (`arma_server/`, `proyect_zomboid/`,
+`hub/` im selben übergeordneten Verzeichnis) — genau diese Anordnung löst
+`podman.repos_dir` in `hub/config/manager.toml` auf (Standard `..`). Wird
+eine Arma3- oder PZ-Instanz erstellt, bevor das passende Repo geklont
+wurde, schlägt das beim Image-Build-Schritt fehl.
+
+Anschließend, aus `hub/`:
 
 ```bash
 npm install

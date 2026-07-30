@@ -98,7 +98,23 @@ volumes, plus its generated config directory.
 
 ## Setup
 
-Requires Node.js 24+ and Podman. From `hub/`:
+Requires Node.js 24+ and Podman, **plus the two game-manager repos cloned as
+siblings of `hub/`** — the hub has no game code of its own; it builds every
+instance from their `Containerfile.api`/`Containerfile.frontend`:
+
+```bash
+git clone https://github.com/cBarredez/Arma3-server-manager.git arma_server
+git clone https://github.com/cBarredez/Proyect_zomboid_manager.git proyect_zomboid
+git clone https://github.com/cBarredez/game_servers_manager_hub.git hub
+```
+
+All three must sit side by side (`arma_server/`, `proyect_zomboid/`, `hub/`
+under the same parent directory) — that layout is what `podman.repos_dir`
+in `hub/config/manager.toml` (default `..`) resolves against. Creating an
+Arma3 or PZ instance before cloning the matching repo will fail at the
+image-build step.
+
+Then, from `hub/`:
 
 ```bash
 npm install
