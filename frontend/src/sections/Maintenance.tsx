@@ -12,6 +12,7 @@ import {
 } from "../api/client.js";
 
 const shortCommit = (commit: string | null) => (commit ? commit.slice(0, 10) : "unknown");
+const formatBuiltAt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "never");
 
 export function Maintenance() {
   const [settings, setSettings] = useState<MaintenanceSettingsType | null>(null);
@@ -166,6 +167,8 @@ export function Maintenance() {
                 <dd>
                   <code>{shortCommit(game.builtCommit)}</code>
                 </dd>
+                <dt>Built at</dt>
+                <dd>{formatBuiltAt(game.builtAt)}</dd>
               </dl>
               {game.outdatedInstances.length > 0 && (
                 <p className="image-outdated-badge">

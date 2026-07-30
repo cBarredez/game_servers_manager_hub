@@ -295,6 +295,12 @@ export class InstanceManager {
 
     const imageRecord = this.store.getJson<GameImagesRecord>(gameImagesKey(row.gameType));
     this.store.setImageCommits(id, imageRecord?.apiCommit ?? null, imageRecord?.frontendCommit ?? null);
+    // recreate() always brings the containers back up (podman.run), so
+    // desiredState must reflect that — otherwise an instance that was
+    // deliberately stopped ends up running-but-still-flagged-stopped, which
+    // silently breaks auto-restart-on-crash for it afterwards (the
+    // scheduler only acts on desiredState === "running").
+    this.store.setDesiredState(id, "running");
     this.store.resetCrashRestartCount(id);
     this.store.insertMaintenanceLog({
       scope: "instance",
