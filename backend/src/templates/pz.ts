@@ -127,6 +127,7 @@ retention_days = 30
 [backups]
 dir = "/pz/backups"
 retain_scheduled_count = 10
+retain_other_count = 5
 schedule_interval_hours = 0
 `;
   },

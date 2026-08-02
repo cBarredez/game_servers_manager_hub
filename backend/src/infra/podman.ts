@@ -198,6 +198,36 @@ export async function containerStatus(containerName: string): Promise<ContainerS
   }
 }
 
+interface PodmanPsEntry {
+  Names?: string[];
+  State?: string;
+}
+
+/**
+ * Status of every container on the host in a single podman spawn, instead
+ * of one `podman inspect` per container name — the Dashboard polls the
+ * instance list every 5s and each instance needs 2 statuses (api +
+ * frontend), so at even a handful of instances that was N podman child
+ * processes every tick. A name absent from the returned map means no such
+ * container exists (equivalent to containerStatus()'s "missing").
+ */
+export async function containerStatuses(): Promise<Map<string, ContainerStatus>> {
+  const statuses = new Map<string, ContainerStatus>();
+  try {
+    const output = await podman(["ps", "-a", "--format", "json"]);
+    const entries = JSON.parse(output) as PodmanPsEntry[];
+    for (const entry of entries) {
+      const name = entry.Names?.[0];
+      if (!name) continue;
+      statuses.set(name, entry.State === "running" ? "running" : "stopped");
+    }
+  } catch {
+    // leave the map empty — every lookup then falls back to "missing", same
+    // failure behavior containerStatus() already had per-container
+  }
+  return statuses;
+}
+
 /** Parses a podman-formatted size like "516.1kB", "14.65GB", or "1.784MiB" into raw bytes. */
 export function parseByteSize(text: string): number {
   const match = /^([\d.]+)\s*([a-zA-Z]*)$/.exec(text.trim());

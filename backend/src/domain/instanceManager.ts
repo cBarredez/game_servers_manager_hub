@@ -286,7 +286,11 @@ export class InstanceManager {
 
   async list(): Promise<InstanceSummary[]> {
     const rows = this.store.listInstances();
-    return Promise.all(rows.map((row) => this.toSummaryWithLiveStatus(row)));
+    // One podman spawn for every instance's status, not two per instance —
+    // this is the dashboard's 5s poll, so that difference is N podman
+    // child processes every tick vs. exactly 1, regardless of N.
+    const statuses = await podman.containerStatuses();
+    return Promise.all(rows.map((row) => this.toSummaryWithLiveStatus(row, statuses)));
   }
 
   async get(id: string): Promise<InstanceSummary | undefined> {
@@ -693,16 +697,19 @@ export class InstanceManager {
     };
   }
 
-  private async toSummaryWithLiveStatus(row: InstanceRow): Promise<InstanceSummary> {
+  /** statuses: pass a pre-fetched map (e.g. from list(), which fetches it once for every row) to avoid this doing its own extra podman round-trip; omit it for a one-off single-instance lookup. */
+  private async toSummaryWithLiveStatus(
+    row: InstanceRow,
+    statuses?: Map<string, podman.ContainerStatus>,
+  ): Promise<InstanceSummary> {
     const summary = this.toSummary(row);
     if (row.lifecycle !== "created") return summary;
 
     const template = getTemplate(row.gameType);
     const names = template.containerNames(row.slug);
-    const [apiStatus, frontendStatus] = await Promise.all([
-      podman.containerStatus(names.api),
-      podman.containerStatus(names.frontend),
-    ]);
+    const resolved = statuses ?? (await podman.containerStatuses());
+    const apiStatus = resolved.get(names.api) ?? "missing";
+    const frontendStatus = resolved.get(names.frontend) ?? "missing";
 
     if (apiStatus === "running" && frontendStatus === "running") {
       summary.status = "running";
