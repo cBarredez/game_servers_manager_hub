@@ -57,6 +57,11 @@ export interface GameTemplate {
   containerNames(slug: string): ContainerNames;
   networkName(slug: string): string;
   volumes(slug: string): VolumeSpec[];
+
+  /** Fixed (non-slug) container names this game's own single-instance deploy scripts actually use in production (verified against deploy.py / deploy/remote.ts, not just the local-dev podman-compose.yml, since the two can diverge) — used to detect a manually-run standalone deployment on the same host for import. */
+  standaloneContainerNames: ContainerNames;
+  /** Fixed (non-slug) volume names from that same real deploy path. Each one is seeded, read-only, into the matching new `${name}-${slug}` volume when importing — a name with no counterpart here (e.g. an extra sizeable volume the hub template has but standalone doesn't) is simply created empty, nothing to copy. */
+  standaloneVolumeNames: string[];
   /** The subset of a PortMap that actually gets published on the host and must be checked for collisions before use. */
   portsToCheck(ports: PortMap): { port: number; protocol: "tcp" | "udp" }[];
 

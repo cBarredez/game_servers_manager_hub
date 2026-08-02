@@ -52,6 +52,46 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
     }
   });
 
+  app.get<{ Params: { gameType: string } }>("/api/instances/standalone/:gameType", async (req, reply) => {
+    const { gameType } = req.params;
+    if (!isGameType(gameType)) {
+      return reply.code(400).send({ error: "gameType must be one of: " + Object.keys(templates).join(", ") });
+    }
+    return { detection: await ctx.instances.detectStandalone(gameType) };
+  });
+
+  app.post<{
+    Params: { gameType: string };
+    Body: { name?: string; memoryMb?: number; diskGb?: number };
+  }>("/api/instances/standalone/:gameType/import", async (req, reply) => {
+    const { gameType } = req.params;
+    if (!isGameType(gameType)) {
+      return reply.code(400).send({ error: "gameType must be one of: " + Object.keys(templates).join(", ") });
+    }
+    const { name, memoryMb, diskGb } = req.body ?? {};
+    if (!name || !name.trim()) {
+      return reply.code(400).send({ error: "name is required" });
+    }
+
+    const template = getTemplate(gameType);
+    const resolvedMemoryMb = memoryMb ?? template.defaultMemoryMb;
+    if (!Number.isFinite(resolvedMemoryMb) || resolvedMemoryMb < 512) {
+      return reply.code(400).send({ error: "memoryMb must be at least 512" });
+    }
+    const resolvedDiskGb = diskGb ?? 0;
+    if (!Number.isFinite(resolvedDiskGb) || resolvedDiskGb < 0) {
+      return reply.code(400).send({ error: "diskGb must be 0 (unlimited) or greater" });
+    }
+
+    try {
+      const result = await ctx.instances.importStandalone(gameType, name.trim(), resolvedMemoryMb, resolvedDiskGb);
+      return reply.code(201).send(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.code(500).send({ error: `failed to import standalone deployment: ${message}` });
+    }
+  });
+
   app.get<{ Params: { id: string } }>("/api/instances/:id/credentials", async (req, reply) => {
     try {
       return await ctx.instances.getCredentials(req.params.id);

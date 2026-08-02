@@ -54,4 +54,17 @@ describe("arma3Template", () => {
     expect(secrets.content).toContain(secrets.initialPassword);
     expect(secrets.content).toContain("session_secret");
   });
+
+  it("every standalone volume name has a matching `${name}-${slug}` counterpart in volumes(), so import seeding pairs up correctly", () => {
+    const volumeNames = new Set(arma3Template.volumes("test-slug").map((v) => v.name));
+    for (const standaloneName of arma3Template.standaloneVolumeNames) {
+      expect(volumeNames.has(`${standaloneName}-test-slug`)).toBe(true);
+    }
+  });
+
+  it("standalone container names don't collide with any slug-suffixed hub container name", () => {
+    const { api, frontend } = arma3Template.containerNames("test-slug");
+    expect(arma3Template.standaloneContainerNames.api).not.toBe(api);
+    expect(arma3Template.standaloneContainerNames.frontend).not.toBe(frontend);
+  });
 });

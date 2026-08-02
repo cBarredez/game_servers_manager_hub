@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   deleteInstance,
+  detectStandalone,
   formatBytes,
   getAllMetrics,
   getImageStatus,
@@ -15,7 +16,9 @@ import {
   type GameTemplateInfo,
   type InstanceMetrics,
   type InstanceSummary,
+  type StandaloneDetection,
 } from "../api/client.js";
+import { ImportStandaloneModal } from "./ImportStandaloneModal.js";
 import { InstanceCard } from "./InstanceCard.js";
 import { NewInstanceModal } from "./NewInstanceModal.js";
 
@@ -72,6 +75,15 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showNewInstance, setShowNewInstance] = useState(false);
   const [search, setSearch] = useState("");
+  const [standaloneDetections, setStandaloneDetections] = useState<StandaloneDetection[]>([]);
+  const [importingGameType, setImportingGameType] = useState<StandaloneDetection | null>(null);
+
+  const checkStandalone = async (templateList: GameTemplateInfo[]) => {
+    const results = await Promise.all(
+      templateList.map((t) => detectStandalone(t.gameType).catch(() => ({ detection: null }))),
+    );
+    setStandaloneDetections(results.map((r) => r.detection).filter((d): d is StandaloneDetection => d !== null));
+  };
 
   const refresh = async () => {
     try {
@@ -96,7 +108,10 @@ export function Dashboard() {
   };
 
   useEffect(() => {
-    listTemplates().then((res) => setTemplates(res.templates));
+    listTemplates().then((res) => {
+      setTemplates(res.templates);
+      checkStandalone(res.templates);
+    });
     refresh();
     refreshMetrics();
     const interval = setInterval(refresh, POLL_MS);
@@ -130,6 +145,21 @@ export function Dashboard() {
       </div>
 
       {error && <p role="alert">{error}</p>}
+
+      {standaloneDetections.map((detection) => {
+        const template = templates.find((t) => t.gameType === detection.gameType);
+        if (!template) return null;
+        return (
+          <div className="standalone-banner" key={detection.gameType}>
+            <span>
+              Found an existing standalone {template.displayName} deployment on this host (
+              <code>{detection.apiContainer}</code>: {detection.apiStatus}, <code>{detection.frontendContainer}</code>:{" "}
+              {detection.frontendStatus}) that isn't managed by the hub yet.
+            </span>
+            <button onClick={() => setImportingGameType(detection)}>Import into hub</button>
+          </div>
+        );
+      })}
 
       {!loading && instances.length > 0 && <GlobalMetrics instances={instances} metricsById={metricsById} />}
 
@@ -191,6 +221,23 @@ export function Dashboard() {
           onCreated={(instance) => setInstances((prev) => [...prev, instance])}
         />
       )}
+
+      {importingGameType &&
+        (() => {
+          const template = templates.find((t) => t.gameType === importingGameType.gameType);
+          if (!template) return null;
+          return (
+            <ImportStandaloneModal
+              detection={importingGameType}
+              template={template}
+              onClose={() => {
+                setImportingGameType(null);
+                refresh();
+              }}
+              onImported={(instance) => setInstances((prev) => [...prev, instance])}
+            />
+          );
+        })()}
     </div>
   );
 }

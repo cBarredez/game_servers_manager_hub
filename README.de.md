@@ -64,6 +64,11 @@ verwendet.
   Image-Neuerstellung und Instanz-Recreate per Klick, Selbstaktualisierung
   des Hubs, sowie tägliche Bereinigung verwaister Images — siehe
   [Wartung](#wartung) weiter unten.
+- Erkennt eine eigenständige (vor dem Hub entstandene, manuell bereitgestellte)
+  Kopie von `arma_server`/`proyect_zomboid`, die bereits auf dem Host läuft,
+  und bietet "In Hub importieren" per Klick an — siehe
+  [Ein bestehendes Deployment importieren](#ein-bestehendes-deployment-importieren)
+  weiter unten.
 
 ## Wartung
 
@@ -196,6 +201,41 @@ Für eine neue Instanz des Spiels `G`:
 
 Das Löschen einer Instanz entfernt ihre Container, ihr Netzwerk und
 (optional) ihre Volumes sowie ihr generiertes Konfigurationsverzeichnis.
+
+### Ein bestehendes Deployment importieren
+
+Lief `arma_server`/`proyect_zomboid` bereits auf dem Host, bevor Sie den Hub
+zu benutzen begannen — auf die übliche Art bereitgestellt (`deploy.py` /
+`deploy/remote.ts`, nicht über den Hub) —, erkennt das Dashboard das und
+bietet an, es unter die Verwaltung des Hubs zu bringen, ohne von vorne
+anzufangen. Es ist eine **Kopie**, kein Verschieben:
+
+1. Die Erkennung sucht nach den tatsächlichen Produktions-Containernamen
+   dieses Spiels (verifiziert anhand der echten Deploy-Skripte, nicht nur
+   der lokalen `podman-compose.yml` für die Entwicklung — beide stimmen
+   nicht immer überein; das echte Deployment von `proyect_zomboid` nutzt
+   zum Beispiel andere Containernamen und ein Volume weniger als seine
+   eigene Compose-Datei).
+2. Der Import erstellt eine neue, vom Hub verwaltete Instanz genau wie
+   Create (eigener Slug, eigene Ports, Netzwerk, Volumes, generierte
+   Konfiguration, neuer Admin-Login) — und befüllt, bevor sie überhaupt
+   gestartet wird, jedes neue Volume aus dem passenden eigenständigen
+   Volume. Das Quell-Volume wird während dieser Kopie **nur lesend**
+   eingebunden — das ist keine bloße Konvention, der Container kann
+   physisch nicht hineinschreiben —, sodass eine fehlgeschlagene oder
+   unvollständige Kopie niemals etwas am Original verlieren oder
+   beschädigen kann und einfach erneut versucht werden kann.
+3. Die ursprünglichen Container und Volumes werden nie gestoppt, entfernt
+   oder sonst irgendwie angefasst — weder vor, während noch nach dem
+   Import. Beide Kopien können beliebig lange parallel laufen; die alte
+   aufzuräumen (falls gewünscht) ist ein separater, manueller Schritt.
+
+Da jeder Spiel-Manager seine eigenen Einstellungen (aktive Mods,
+Start-Schalter usw.) innerhalb seines Haupt-Datenvolumes speichert statt in
+der eingebundenen Config-Datei, bringt der Import auch das mit, nicht nur
+Spielstände — nur der Admin-Login des Panels wird für die importierte
+Instanz neu generiert, genau wie bei jeder anderen vom Hub erstellten
+Instanz.
 
 ## Einrichtung
 

@@ -76,6 +76,16 @@ export interface InstanceMetrics {
   diskUsedBytes: number;
 }
 
+export interface StandaloneDetection {
+  gameType: GameType;
+  apiContainer: string;
+  frontendContainer: string;
+  apiStatus: podman.ContainerStatus;
+  frontendStatus: podman.ContainerStatus;
+  /** Standalone volume names that importStandalone() would seed a new instance's volumes from. */
+  volumes: string[];
+}
+
 function gameImagesKey(gameType: GameType): string {
   return `game-images:${gameType}`;
 }
@@ -102,6 +112,65 @@ export class InstanceManager {
     mock: boolean,
     memoryMb: number,
     diskGb: number,
+  ): Promise<CreateInstanceResult> {
+    return this.provisionInstance(gameType, name, mock, memoryMb, diskGb);
+  }
+
+  /** Whether a standalone (non-hub, manually deployed) copy of a game's stack is present on this host, and if so, what it's called. Detection is purely by container name/status — the hub never has any other way of knowing about a deployment it didn't create. */
+  async detectStandalone(gameType: GameType): Promise<StandaloneDetection | null> {
+    const template = getTemplate(gameType);
+    const { api, frontend } = template.standaloneContainerNames;
+    const [apiStatus, frontendStatus] = await Promise.all([
+      podman.containerStatus(api),
+      podman.containerStatus(frontend),
+    ]);
+    if (apiStatus === "missing" && frontendStatus === "missing") return null;
+    return {
+      gameType,
+      apiContainer: api,
+      frontendContainer: frontend,
+      apiStatus,
+      frontendStatus,
+      volumes: template.standaloneVolumeNames,
+    };
+  }
+
+  /**
+   * Creates a brand new hub-managed instance exactly like create(), except
+   * its volumes are seeded from a detected standalone deployment's volumes
+   * instead of starting empty — this is how an existing manually-deployed
+   * server (with real save data and its own settings, both of which live
+   * inside these volumes) gets brought under hub management without ever
+   * touching the original. The standalone deployment itself (containers and
+   * volumes both) is left completely untouched; this only ever reads from
+   * it, read-only, at the filesystem level (see podman.copyVolume).
+   */
+  async importStandalone(gameType: GameType, name: string, memoryMb: number, diskGb: number): Promise<CreateInstanceResult> {
+    const template = getTemplate(gameType);
+    const detection = await this.detectStandalone(gameType);
+    if (!detection) {
+      throw new Error(
+        `no standalone ${gameType} deployment found (looked for containers "${template.standaloneContainerNames.api}" / "${template.standaloneContainerNames.frontend}")`,
+      );
+    }
+    return this.provisionInstance(gameType, name, false, memoryMb, diskGb, template.standaloneVolumeNames);
+  }
+
+  /**
+   * Shared by create() and importStandalone(). When seedFromVolumes is
+   * given, each new volume that has a same-named standalone counterpart is
+   * populated from it (read-only source, see podman.copyVolume) before the
+   * containers ever start; any hub volume with no standalone counterpart
+   * (e.g. pz's backups volume) is simply created empty, same as a normal
+   * create().
+   */
+  private async provisionInstance(
+    gameType: GameType,
+    name: string,
+    mock: boolean,
+    memoryMb: number,
+    diskGb: number,
+    seedFromVolumes?: string[],
   ): Promise<CreateInstanceResult> {
     const template = getTemplate(gameType);
     const id = randomUUID();
@@ -149,6 +218,20 @@ export class InstanceManager {
         } else {
           await podman.volumeCreate(volume.name);
         }
+      }
+
+      if (seedFromVolumes && seedFromVolumes.length > 0) {
+        for (const sourceVolume of seedFromVolumes) {
+          await podman.copyVolume(sourceVolume, `${sourceVolume}-${slug}`, template.images.api);
+        }
+        this.store.insertMaintenanceLog({
+          scope: "instance",
+          instanceId: id,
+          gameType,
+          action: "import-standalone",
+          detail: `seeded from standalone deployment volumes (read-only, left untouched): ${seedFromVolumes.join(", ")}`,
+          success: true,
+        });
       }
 
       await podman.run([...template.apiRunArgs(ctx, ports), template.images.api]);

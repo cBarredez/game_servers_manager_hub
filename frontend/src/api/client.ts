@@ -101,6 +101,26 @@ export interface InstanceCredentials {
 export const getCredentials = (id: string): Promise<InstanceCredentials> =>
   GET<InstanceCredentials>(`/api/instances/${id}/credentials`);
 
+export interface StandaloneDetection {
+  gameType: GameType;
+  apiContainer: string;
+  frontendContainer: string;
+  apiStatus: "running" | "stopped" | "missing";
+  frontendStatus: "running" | "stopped" | "missing";
+  volumes: string[];
+}
+
+export const detectStandalone = (gameType: GameType): Promise<{ detection: StandaloneDetection | null }> =>
+  GET(`/api/instances/standalone/${gameType}`);
+
+export const importStandalone = (
+  gameType: GameType,
+  name: string,
+  memoryMb: number,
+  diskGb: number,
+): Promise<{ instance: InstanceSummary; initialPassword: string; diskLimitEnforced: boolean }> =>
+  POST(`/api/instances/standalone/${gameType}/import`, { name, memoryMb, diskGb });
+
 export interface InstanceMetrics {
   cpuPercent: number | null;
   memUsedBytes: number | null;

@@ -58,4 +58,17 @@ describe("pzTemplate", () => {
     expect(secrets.content).toContain("admin_password");
     expect(secrets.content).toContain(secrets.initialPassword);
   });
+
+  it("every standalone volume name has a matching `${name}-${slug}` counterpart in volumes(), so import seeding pairs up correctly", () => {
+    const volumeNames = new Set(pzTemplate.volumes("my-slug").map((v) => v.name));
+    for (const standaloneName of pzTemplate.standaloneVolumeNames) {
+      expect(volumeNames.has(`${standaloneName}-my-slug`)).toBe(true);
+    }
+  });
+
+  it("standalone container names don't collide with any slug-suffixed hub container name", () => {
+    const { api, frontend } = pzTemplate.containerNames("my-slug");
+    expect(pzTemplate.standaloneContainerNames.api).not.toBe(api);
+    expect(pzTemplate.standaloneContainerNames.frontend).not.toBe(frontend);
+  });
 });

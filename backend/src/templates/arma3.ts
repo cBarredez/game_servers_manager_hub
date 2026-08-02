@@ -48,6 +48,11 @@ export const arma3Template: GameTemplate = {
     return { api: `arma3-api-${slug}`, frontend: `arma3-frontend-${slug}` };
   },
 
+  // Verified against arma_server's actual deploy.py (matches its
+  // podman-compose.yml exactly for this game, unlike PZ's — see pz.ts).
+  standaloneContainerNames: { api: "arma3-api", frontend: "arma3-frontend" },
+  standaloneVolumeNames: ["arma3-server", "steam-home", "steam-config", "aspnet-keys"],
+
   networkName(slug: string): string {
     return `arma3-net-${slug}`;
   },
