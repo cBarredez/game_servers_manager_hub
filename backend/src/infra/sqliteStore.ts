@@ -2,10 +2,12 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 
-export type GameType = "arma3" | "pz";
+/** Game identifiers are provided by the adapter registry, not a closed DB union. */
+export type GameType = string;
 export type InstanceLifecycle = "creating" | "created" | "deleting" | "error";
 export type DesiredState = "running" | "stopped";
 export type MaintenanceScope = "instance" | "image" | "host";
+export type InstanceOrigin = "provisioned" | "adopted" | "legacy";
 
 export interface InstanceRow {
   id: string;
@@ -28,6 +30,13 @@ export interface InstanceRow {
   imageCommitFrontend: string | null;
   /** Set when "Recreate from latest image" is requested while the instance is running — deferred instead of applied immediately so it doesn't interrupt connected players. Applied automatically (and cleared) the next time the instance actually starts, whether via manual start/restart, a scheduled restart, or crash recovery. */
   pendingRecreate: boolean;
+  origin: InstanceOrigin;
+  managerId: string | null;
+  externalInstanceId: string | null;
+  contractVersion: string | null;
+  driverRef: string | null;
+  resourceManifest: string | null;
+  controllerRevision: number | null;
 }
 
 export interface MaintenanceLogRow {
@@ -66,6 +75,13 @@ const INSTANCE_COLUMN_MIGRATIONS: { name: string; ddl: string }[] = [
     name: "pending_recreate",
     ddl: "ALTER TABLE instances ADD COLUMN pending_recreate INTEGER NOT NULL DEFAULT 0",
   },
+  { name: "origin", ddl: "ALTER TABLE instances ADD COLUMN origin TEXT NOT NULL DEFAULT 'legacy'" },
+  { name: "manager_id", ddl: "ALTER TABLE instances ADD COLUMN manager_id TEXT" },
+  { name: "external_instance_id", ddl: "ALTER TABLE instances ADD COLUMN external_instance_id TEXT" },
+  { name: "contract_version", ddl: "ALTER TABLE instances ADD COLUMN contract_version TEXT" },
+  { name: "driver_ref", ddl: "ALTER TABLE instances ADD COLUMN driver_ref TEXT" },
+  { name: "resource_manifest_json", ddl: "ALTER TABLE instances ADD COLUMN resource_manifest_json TEXT" },
+  { name: "controller_revision", ddl: "ALTER TABLE instances ADD COLUMN controller_revision INTEGER" },
 ];
 
 /**
@@ -115,6 +131,10 @@ export class SqliteStore {
       );
     `);
     this.migrateInstanceColumns();
+    this.db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS instances_external_instance_id_unique
+       ON instances(external_instance_id) WHERE external_instance_id IS NOT NULL`,
+    );
   }
 
   private migrateInstanceColumns(): void {
@@ -135,16 +155,39 @@ export class SqliteStore {
       | "crashRestartCount"
       | "lastCrashRestartAt"
       | "pendingRecreate"
-    >,
+      | "origin"
+      | "managerId"
+      | "externalInstanceId"
+      | "contractVersion"
+      | "driverRef"
+      | "resourceManifest"
+      | "controllerRevision"
+    > &
+      Partial<
+        Pick<
+          InstanceRow,
+          | "origin"
+          | "managerId"
+          | "externalInstanceId"
+          | "contractVersion"
+          | "driverRef"
+          | "resourceManifest"
+          | "controllerRevision"
+        >
+      >,
   ): void {
     this.db
       .prepare(
         `INSERT INTO instances (
            id, slug, game_type, name, lifecycle, ports, error_message,
-           memory_mb, disk_gb, mock, desired_state, image_commit_api, image_commit_frontend
+           memory_mb, disk_gb, mock, desired_state, image_commit_api, image_commit_frontend,
+           origin, manager_id, external_instance_id, contract_version, driver_ref,
+           resource_manifest_json, controller_revision
          ) VALUES (
            @id, @slug, @gameType, @name, @lifecycle, @ports, @errorMessage,
-           @memoryMb, @diskGb, @mock, @desiredState, @imageCommitApi, @imageCommitFrontend
+           @memoryMb, @diskGb, @mock, @desiredState, @imageCommitApi, @imageCommitFrontend,
+           @origin, @managerId, @externalInstanceId, @contractVersion, @driverRef,
+           @resourceManifest, @controllerRevision
          )`,
       )
       .run({
@@ -161,6 +204,13 @@ export class SqliteStore {
         desiredState: row.desiredState,
         imageCommitApi: row.imageCommitApi,
         imageCommitFrontend: row.imageCommitFrontend,
+        origin: row.origin ?? "provisioned",
+        managerId: row.managerId ?? null,
+        externalInstanceId: row.externalInstanceId ?? null,
+        contractVersion: row.contractVersion ?? null,
+        driverRef: row.driverRef ?? null,
+        resourceManifest: row.resourceManifest ?? null,
+        controllerRevision: row.controllerRevision ?? null,
       });
   }
 
@@ -206,6 +256,12 @@ export class SqliteStore {
 
   setPendingRecreate(id: string, pending: boolean): void {
     this.db.prepare(`UPDATE instances SET pending_recreate = ? WHERE id = ?`).run(pending ? 1 : 0, id);
+  }
+
+  updateContractState(id: string, resourceManifest: string, controllerRevision: number): void {
+    this.db
+      .prepare(`UPDATE instances SET resource_manifest_json = ?, controller_revision = ? WHERE id = ?`)
+      .run(resourceManifest, controllerRevision, id);
   }
 
   deleteInstance(id: string): void {
@@ -310,5 +366,12 @@ function mapInstanceRow(row: Record<string, unknown>): InstanceRow {
     imageCommitApi: (row.image_commit_api as string | null) ?? null,
     imageCommitFrontend: (row.image_commit_frontend as string | null) ?? null,
     pendingRecreate: Boolean(row.pending_recreate),
+    origin: (row.origin as InstanceOrigin | null) ?? "legacy",
+    managerId: (row.manager_id as string | null) ?? null,
+    externalInstanceId: (row.external_instance_id as string | null) ?? null,
+    contractVersion: (row.contract_version as string | null) ?? null,
+    driverRef: (row.driver_ref as string | null) ?? null,
+    resourceManifest: (row.resource_manifest_json as string | null) ?? null,
+    controllerRevision: (row.controller_revision as number | null) ?? null,
   };
 }

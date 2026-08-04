@@ -111,12 +111,15 @@ export function InstanceCard({
 
   return (
     <div className="instance-card">
-      <img className="instance-cover" src={GAME_IMAGE[instance.gameType]} alt={instance.gameDisplayName} />
+      {GAME_IMAGE[instance.gameType] && (
+        <img className="instance-cover" src={GAME_IMAGE[instance.gameType]} alt={instance.gameDisplayName} />
+      )}
 
       <div className="instance-card-header">
         <div>
           <h3>{instance.name}</h3>
           <span className="instance-game">{instance.gameDisplayName}</span>
+          {instance.origin === "adopted" && <span className="instance-game"> · adopted in place</span>}
         </div>
         <span className={`status-pill status-${presentation.tone}`}>{presentation.label}</span>
       </div>
@@ -201,7 +204,7 @@ export function InstanceCard({
         )}
       </label>
 
-      {resourcesOpen && (
+      {resourcesOpen && instance.origin !== "adopted" && (
         <div className="instance-resources-form">
           <label>
             Memory (MB)
@@ -234,10 +237,16 @@ export function InstanceCard({
         <a href={instance.panelUrl} target="_blank" rel="noreferrer" className="btn-primary">
           Open panel
         </a>
-        <button disabled={credentialsBusy} onClick={toggleCredentials}>
-          {credentialsBusy ? "Loading…" : credentialsOpen ? "Hide credentials" : "Show credentials"}
-        </button>
-        <button onClick={toggleResources}>{resourcesOpen ? "Hide limits" : "Edit limits"}</button>
+        {instance.credentialsMode === "recoverable-legacy" ? (
+          <button disabled={credentialsBusy} onClick={toggleCredentials}>
+            {credentialsBusy ? "Loading…" : credentialsOpen ? "Hide credentials" : "Show credentials"}
+          </button>
+        ) : (
+          <span className="field-hint">Credentials are owned by this server manager.</span>
+        )}
+        {instance.origin !== "adopted" && (
+          <button onClick={toggleResources}>{resourcesOpen ? "Hide limits" : "Edit limits"}</button>
+        )}
         {instance.status === "running" ? (
           <>
             <button disabled={busy} onClick={() => run(() => onStop(instance.id))}>
@@ -269,7 +278,18 @@ export function InstanceCard({
           </button>
         )}
 
-        {confirmingDelete ? (
+        {instance.origin === "adopted" && confirmingDelete ? (
+          <span className="instance-confirm-delete">
+            <button className="btn-danger" disabled={busy} onClick={() => run(() => onDelete(instance.id, false))}>
+              Confirm detach
+            </button>
+            <button disabled={busy} onClick={() => setConfirmingDelete(false)}>Cancel</button>
+          </span>
+        ) : instance.origin === "adopted" ? (
+          <button className="btn-danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
+            Detach from hub
+          </button>
+        ) : confirmingDelete ? (
           <span className="instance-confirm-delete">
             <button className="btn-danger" disabled={busy} onClick={() => run(() => onDelete(instance.id, true))}>
               Delete + wipe data

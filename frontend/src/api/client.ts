@@ -34,7 +34,7 @@ export interface HealthResponse {
 
 export const getHealth = (): Promise<HealthResponse> => GET<HealthResponse>("/api/health");
 
-export type GameType = "arma3" | "pz";
+export type GameType = string;
 
 export interface GameTemplateInfo {
   gameType: GameType;
@@ -62,6 +62,8 @@ export interface InstanceSummary {
   restartSchedule: string | null;
   crashRestartCount: number;
   pendingRecreate: boolean;
+  origin: "provisioned" | "adopted" | "legacy";
+  credentialsMode: "recoverable-legacy" | "manager-owned";
 }
 
 export const listTemplates = (): Promise<{ templates: GameTemplateInfo[] }> =>
@@ -101,25 +103,29 @@ export interface InstanceCredentials {
 export const getCredentials = (id: string): Promise<InstanceCredentials> =>
   GET<InstanceCredentials>(`/api/instances/${id}/credentials`);
 
-export interface StandaloneDetection {
+export type DiscoveryStatus = "ready" | "incompatible" | "partial" | "conflict" | "already-claimed";
+
+export interface DiscoveryCandidate {
+  candidateId: string;
+  instanceId: string;
+  managerId: string;
   gameType: GameType;
-  apiContainer: string;
-  frontendContainer: string;
-  apiStatus: "running" | "stopped" | "missing";
-  frontendStatus: "running" | "stopped" | "missing";
-  volumes: string[];
+  displayName: string;
+  status: DiscoveryStatus;
+  issues: string[];
+  manifest: {
+    resources: {
+      containers: { api: string; frontend: string };
+      volumes: string[];
+      ports: Record<string, number>;
+    };
+  };
 }
 
-export const detectStandalone = (gameType: GameType): Promise<{ detection: StandaloneDetection | null }> =>
-  GET(`/api/instances/standalone/${gameType}`);
-
-export const importStandalone = (
-  gameType: GameType,
-  name: string,
-  memoryMb: number,
-  diskGb: number,
-): Promise<{ instance: InstanceSummary; initialPassword: string; diskLimitEnforced: boolean }> =>
-  POST(`/api/instances/standalone/${gameType}/import`, { name, memoryMb, diskGb });
+export const listDiscovery = (): Promise<{ candidates: DiscoveryCandidate[] }> => GET("/api/discovery");
+export const claimDiscovery = (candidateId: string, name: string): Promise<{ instance: InstanceSummary }> =>
+  POST(`/api/discovery/${candidateId}/claim`, { name });
+export const detachInstance = (id: string): Promise<{ ok: true }> => POST(`/api/instances/${id}/detach`);
 
 export interface InstanceMetrics {
   cpuPercent: number | null;

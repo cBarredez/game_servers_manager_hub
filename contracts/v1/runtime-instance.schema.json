@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gameserver-manager.local/contracts/v1/runtime-instance.schema.json",
+  "title": "Server Manager Runtime Instance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "instanceId", "managerId", "gameType", "displayName", "driver", "capabilities", "resources", "images", "config", "secrets", "health", "controllerRevision"],
+  "properties": {
+    "contractVersion": { "const": "1.0" },
+    "instanceId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "managerId": { "type": "string" },
+    "gameType": { "type": "string" },
+    "displayName": { "type": "string" },
+    "driver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "command"],
+      "properties": {
+        "protocolVersion": { "const": "1.0" },
+        "command": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["containers", "volumes", "networks", "ports"],
+      "properties": {
+        "containers": {
+          "type": "object",
+          "required": ["api", "frontend"],
+          "properties": {
+            "api": { "type": "string", "minLength": 1 },
+            "frontend": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "volumes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "networks": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "ports": {
+          "type": "object",
+          "required": ["web"],
+          "properties": { "web": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+          "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "primaryMetricsContainer": { "type": "string" },
+        "sizeableVolumes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "images": {
+      "type": "object",
+      "required": ["api", "frontend"],
+      "properties": {
+        "api": { "type": "string", "minLength": 1 },
+        "frontend": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "config": { "type": "object" },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "provider", "reference"],
+        "properties": {
+          "id": { "type": "string" },
+          "provider": { "const": "podman" },
+          "reference": { "type": "string" }
+        }
+      }
+    },
+    "health": { "type": "object", "minProperties": 1 },
+    "controllerRevision": { "type": "integer", "minimum": 0 }
+  }
+}

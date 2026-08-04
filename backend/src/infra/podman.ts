@@ -89,32 +89,12 @@ export async function volumeRemove(name: string): Promise<void> {
   await podmanBestEffort(["volume", "rm", name]);
 }
 
-/**
- * Seeds a freshly-created volume from an existing one, for importing a
- * standalone (non-hub) deployment. The source is mounted **read-only** —
- * this is the actual safety guarantee, not just a convention: the
- * container physically cannot write to it, so a failed or partial copy can
- * never corrupt or lose anything in the original. Runs as root inside the
- * given game image (already local, no extra image pull needed) since the
- * source data's ownership may not match whatever UID the copy would
- * otherwise run as.
- */
-export async function copyVolume(sourceVolume: string, destVolume: string, helperImage: string): Promise<void> {
-  await podman([
-    "run",
-    "--rm",
-    "--user",
-    "0",
-    "-v",
-    `${sourceVolume}:/hub-import-src:ro`,
-    "-v",
-    `${destVolume}:/hub-import-dst`,
-    "--entrypoint",
-    "sh",
-    helperImage,
-    "-c",
-    "cp -a /hub-import-src/. /hub-import-dst/",
-  ]);
+export async function secretCreate(name: string, sourcePath: string): Promise<void> {
+  await podman(["secret", "create", name, sourcePath]);
+}
+
+export async function secretRemove(name: string): Promise<void> {
+  await podmanBestEffort(["secret", "rm", name]);
 }
 
 export async function imageExists(tag: string): Promise<boolean> {

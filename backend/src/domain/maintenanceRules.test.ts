@@ -23,6 +23,13 @@ function makeRow(overrides: Partial<InstanceRow> = {}): InstanceRow {
     imageCommitApi: null,
     imageCommitFrontend: null,
     pendingRecreate: false,
+    origin: "legacy",
+    managerId: null,
+    externalInstanceId: null,
+    contractVersion: null,
+    driverRef: null,
+    resourceManifest: null,
+    controllerRevision: null,
     ...overrides,
   };
 }

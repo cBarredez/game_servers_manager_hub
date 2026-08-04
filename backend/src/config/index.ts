@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import * as TOML from "smol-toml";
 
 export interface AppConfig {
@@ -35,6 +35,13 @@ function num(section: RawToml | undefined, key: string, fallback: number): numbe
 }
 
 export async function loadConfig(mainPath: string, secretsPath: string): Promise<AppConfig> {
+  const secretStat = await lstat(secretsPath);
+  if (secretStat.isSymbolicLink() || !secretStat.isFile()) {
+    throw new ConfigValidationError("manager.secrets.toml must be a regular file, not a symlink");
+  }
+  if (process.platform !== "win32" && (secretStat.mode & 0o077) !== 0) {
+    throw new ConfigValidationError("manager.secrets.toml must not be readable or writable by group/other (chmod 600)");
+  }
   const [mainRaw, secretsRaw] = await Promise.all([
     readFile(mainPath, "utf-8"),
     readFile(secretsPath, "utf-8"),

@@ -31,6 +31,7 @@ async function main(): Promise<void> {
   const ctx: AppContext = { config, store, instances, maintenance, selfUpdate, version, frontendDistDir };
   const app = await buildApp(ctx);
 
+  await instances.reconcileClaims();
   startMaintenanceScheduler(maintenance);
 
   await app.listen({ port: config.web.port, host: config.web.bindIp });

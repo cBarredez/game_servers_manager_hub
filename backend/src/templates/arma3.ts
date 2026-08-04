@@ -48,11 +48,6 @@ export const arma3Template: GameTemplate = {
     return { api: `arma3-api-${slug}`, frontend: `arma3-frontend-${slug}` };
   },
 
-  // Verified against arma_server's actual deploy.py (matches its
-  // podman-compose.yml exactly for this game, unlike PZ's — see pz.ts).
-  standaloneContainerNames: { api: "arma3-api", frontend: "arma3-frontend" },
-  standaloneVolumeNames: ["arma3-server", "steam-home", "steam-config", "aspnet-keys"],
-
   networkName(slug: string): string {
     return `arma3-net-${slug}`;
   },
@@ -64,6 +59,10 @@ export const arma3Template: GameTemplate = {
       { name: `steam-config-${slug}`, sizeable: false },
       { name: `aspnet-keys-${slug}`, sizeable: false },
     ];
+  },
+
+  secretName(slug: string): string {
+    return `arma3-manager-secrets-${slug}`;
   },
 
   portsToCheck(ports: PortMap) {
@@ -157,7 +156,9 @@ password = ""
       "-p",
       `${ports.vonPort}:${ports.vonPort}/udp`,
       "-v",
-      `${ctx.configDir}:/app/config:ro`,
+      `${ctx.configDir}/manager.toml:/app/config/manager.toml:ro`,
+      "--secret",
+      `${this.secretName!(ctx.slug)},target=manager.secrets.toml`,
       "-v",
       "/sys:/host-sys:ro",
       "-v",

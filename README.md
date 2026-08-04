@@ -53,10 +53,11 @@ as the Podman build context for every instance the hub creates.
   restarts, source-update tracking with one-click image rebuild + instance
   recreate, hub self-update, and daily dangling-image cleanup — see
   [Maintenance](#maintenance) below.
-- Detects a standalone (pre-hub, manually deployed) copy of
-  `arma_server`/`proyect_zomboid` already running on the host, and offers a
-  one-click **Import into hub** — see
-  [Importing an existing deployment](#importing-an-existing-deployment) below.
+- Discovers compatible ARMA 3 deployments through the Server Manager v1
+  contract and offers **in-place adoption** without copying containers,
+  volumes, configuration, or secrets — see
+  [Adopting an existing deployment](#adopting-an-existing-deployment) below.
+  Project Zomboid remains on the legacy adapter and cannot be adopted yet.
 
 ## Maintenance
 
@@ -177,36 +178,29 @@ For a new instance of game `G`:
 Deleting an instance removes its containers, network, and (optionally)
 volumes, plus its generated config directory.
 
-### Importing an existing deployment
+### Adopting an existing deployment
 
-If `arma_server`/`proyect_zomboid` was already running on the host before
-you started using the hub — deployed the normal way (`deploy.py` /
-`deploy/remote.ts`, not through the hub) — the dashboard detects it and
-offers to bring it under hub management without starting over. It's a
-**copy**, not a move:
+An ARMA 3 deployment patched for the Server Manager v1 contract publishes a
+stable instance UUID, an atomic non-secret runtime manifest, common OCI
+labels, and a local driver. The hub validates that complete topology on the
+same host and Unix user before offering adoption; a container name alone is
+never sufficient evidence.
 
-1. Detection looks for that game's real production container names (verified
-   against the actual deploy scripts, not just the local-dev
-   `podman-compose.yml` — the two aren't always the same; `proyect_zomboid`'s
-   real deploy uses different container names and one fewer volume than its
-   own compose file, for instance).
-2. Importing creates a brand new hub-managed instance exactly like Create
-   does (its own slug, ports, network, volumes, generated config, fresh
-   admin login) — then, before it's ever started, seeds each new volume from
-   the matching standalone one. The source volume is mounted **read-only**
-   during that copy — not just as a convention, the container is physically
-   unable to write to it — so a failed or partial copy can never lose or
-   corrupt anything in the original, and it can simply be retried.
-3. The original containers and volumes are never stopped, removed, or
-   otherwise touched, before, during, or after the import. Both copies can
-   run side by side indefinitely; cleaning up the old one (if you want to)
-   is a separate, manual step.
+Adoption writes an exclusive, revisioned controller claim and registers the
+existing resources in SQLite. It does **not** copy, rename, stop, recreate,
+or replace containers, volumes, ports, configuration, images, or Podman
+secrets. Lifecycle actions are then delegated to the manager driver.
+Detaching releases the claim and removes only the hub record, leaving every
+resource and its current state untouched. Manual `deploy.py` operations are
+rejected while the hub owns the instance.
 
-Since each game's manager stores its own settings (active mods, startup
-toggles, etc.) inside its main data volume rather than the bind-mounted
-config file, importing brings those over too, not just save data — only the
-panel's own admin login is freshly generated for the new instance, same as
-any other instance the hub creates.
+See the [canonical v1 contract](docs/architecture/server-manager-contract-v1.md),
+the [new-manager guide](docs/architecture/guia-nuevo-server-manager.md), the
+[secret policy](docs/architecture/politica-secretos.md), the
+[new-manager checklist](docs/architecture/new-manager-checklist.md), and
+the [ARMA 3 adoption runbook](docs/runbooks/arma3-adoption.md). Project
+Zomboid stays on the legacy template adapter and has no discovery/adoption
+flow until it implements the contract.
 
 ## Setup
 

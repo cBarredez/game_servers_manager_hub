@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../app.js";
-import { getTemplate, templates } from "../templates/index.js";
+import { templates } from "../templates/index.js";
+import { getLegacyTemplateAdapter } from "../adapters/index.js";
 import type { GameType } from "../infra/sqliteStore.js";
 
 function isGameType(value: unknown): value is GameType {
@@ -16,6 +17,39 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
     return { metrics: await ctx.instances.getAllMetrics() };
   });
 
+  app.get("/api/discovery", async () => ({
+    candidates: (await ctx.instances.discover()).map((candidate) => ({
+      candidateId: candidate.candidateId,
+      instanceId: candidate.instanceId,
+      managerId: candidate.managerId,
+      gameType: candidate.gameType,
+      displayName: candidate.displayName,
+      status: candidate.status,
+      issues: candidate.issues,
+      manifest: {
+        resources: {
+          containers: candidate.manifest.resources.containers,
+          volumes: candidate.manifest.resources.volumes,
+          ports: candidate.manifest.resources.ports,
+        },
+      },
+    })),
+  }));
+
+  app.post<{ Params: { candidateId: string }; Body: { name?: string } }>(
+    "/api/discovery/:candidateId/claim",
+    async (req, reply) => {
+      const name = req.body?.name?.trim();
+      if (!name) return reply.code(400).send({ error: "name is required" });
+      try {
+        reply.header("Cache-Control", "no-store");
+        return reply.code(201).send({ instance: await ctx.instances.adopt(req.params.candidateId, name) });
+      } catch (error) {
+        return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
+
   app.post<{
     Body: { gameType?: string; name?: string; mock?: boolean; memoryMb?: number; diskGb?: number };
   }>("/api/instances", async (req, reply) => {
@@ -27,7 +61,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
       return reply.code(400).send({ error: "name is required" });
     }
 
-    const template = getTemplate(gameType);
+    const template = getLegacyTemplateAdapter(gameType).template;
     const resolvedMemoryMb = memoryMb ?? template.defaultMemoryMb;
     if (!Number.isFinite(resolvedMemoryMb) || resolvedMemoryMb < 512) {
       return reply.code(400).send({ error: "memoryMb must be at least 512" });
@@ -45,6 +79,7 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
         resolvedMemoryMb,
         resolvedDiskGb,
       );
+      reply.header("Cache-Control", "no-store");
       return reply.code(201).send(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -52,48 +87,9 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
     }
   });
 
-  app.get<{ Params: { gameType: string } }>("/api/instances/standalone/:gameType", async (req, reply) => {
-    const { gameType } = req.params;
-    if (!isGameType(gameType)) {
-      return reply.code(400).send({ error: "gameType must be one of: " + Object.keys(templates).join(", ") });
-    }
-    return { detection: await ctx.instances.detectStandalone(gameType) };
-  });
-
-  app.post<{
-    Params: { gameType: string };
-    Body: { name?: string; memoryMb?: number; diskGb?: number };
-  }>("/api/instances/standalone/:gameType/import", async (req, reply) => {
-    const { gameType } = req.params;
-    if (!isGameType(gameType)) {
-      return reply.code(400).send({ error: "gameType must be one of: " + Object.keys(templates).join(", ") });
-    }
-    const { name, memoryMb, diskGb } = req.body ?? {};
-    if (!name || !name.trim()) {
-      return reply.code(400).send({ error: "name is required" });
-    }
-
-    const template = getTemplate(gameType);
-    const resolvedMemoryMb = memoryMb ?? template.defaultMemoryMb;
-    if (!Number.isFinite(resolvedMemoryMb) || resolvedMemoryMb < 512) {
-      return reply.code(400).send({ error: "memoryMb must be at least 512" });
-    }
-    const resolvedDiskGb = diskGb ?? 0;
-    if (!Number.isFinite(resolvedDiskGb) || resolvedDiskGb < 0) {
-      return reply.code(400).send({ error: "diskGb must be 0 (unlimited) or greater" });
-    }
-
-    try {
-      const result = await ctx.instances.importStandalone(gameType, name.trim(), resolvedMemoryMb, resolvedDiskGb);
-      return reply.code(201).send(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return reply.code(500).send({ error: `failed to import standalone deployment: ${message}` });
-    }
-  });
-
   app.get<{ Params: { id: string } }>("/api/instances/:id/credentials", async (req, reply) => {
     try {
+      reply.header("Cache-Control", "no-store");
       return await ctx.instances.getCredentials(req.params.id);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
@@ -130,6 +126,15 @@ export async function registerInstanceRoutes(app: FastifyInstance, ctx: AppConte
   app.post<{ Params: { id: string } }>("/api/instances/:id/recreate", async (req, reply) => {
     try {
       await ctx.instances.recreate(req.params.id);
+      return { ok: true };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Params: { id: string } }>("/api/instances/:id/detach", async (req, reply) => {
+    try {
+      await ctx.instances.detach(req.params.id);
       return { ok: true };
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });

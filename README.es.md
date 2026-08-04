@@ -64,10 +64,11 @@ crea el hub.
   fuente con reconstrucción de imagen y recreación de instancia con un clic,
   autoactualización del propio hub, y limpieza diaria de imágenes huérfanas
   — ver [Mantenimiento](#mantenimiento) más abajo.
-- Detecta una copia independiente (previa al hub, desplegada manualmente) de
-  `arma_server`/`proyect_zomboid` que ya esté corriendo en el host, y ofrece
-  "Importar al hub" con un clic — ver
-  [Importar un despliegue existente](#importar-un-despliegue-existente) más abajo.
+- Descubre despliegues compatibles de ARMA 3 mediante el contrato Server
+  Manager v1 y ofrece **adopción en sitio** sin copiar contenedores,
+  volúmenes, configuración ni secretos — ver
+  [Adoptar un despliegue existente](#adoptar-un-despliegue-existente).
+  Project Zomboid permanece en el adaptador legacy y todavía no se adopta.
 
 ## Mantenimiento
 
@@ -202,38 +203,29 @@ Para una nueva instancia del juego `G`:
 Eliminar una instancia borra sus contenedores, su red y (opcionalmente) sus
 volúmenes, además de su directorio de configuración generado.
 
-### Importar un despliegue existente
+### Adoptar un despliegue existente
 
-Si `arma_server`/`proyect_zomboid` ya estaba corriendo en el host antes de
-empezar a usar el hub —desplegado de la forma habitual (`deploy.py` /
-`deploy/remote.ts`, no a través del hub— el panel lo detecta y ofrece
-llevarlo bajo la gestión del hub sin empezar de cero. Es una **copia**, no
-un traslado:
+Un despliegue de ARMA 3 parcheado para el contrato Server Manager v1 publica
+un UUID estable, un manifiesto runtime atómico y sin secretos, etiquetas OCI
+comunes y un driver local. El hub valida la topología completa bajo el mismo
+host y usuario Unix antes de ofrecer la adopción; el nombre de un contenedor
+por sí solo nunca es prueba suficiente.
 
-1. La detección busca los nombres de contenedor reales de producción de ese
-   juego (verificados contra los scripts de deploy reales, no solo el
-   `podman-compose.yml` de desarrollo local — los dos no siempre coinciden;
-   el deploy real de `proyect_zomboid`, por ejemplo, usa nombres de
-   contenedor distintos y un volumen menos que su propio archivo compose).
-2. Importar crea una instancia nueva gestionada por el hub exactamente igual
-   que Create (su propio slug, puertos, red, volúmenes, configuración
-   generada, login de admin nuevo) — y antes de arrancarla siquiera, siembra
-   cada volumen nuevo desde el volumen independiente correspondiente. El
-   volumen de origen se monta en **solo lectura** durante esa copia — no es
-   solo una convención, el contenedor físicamente no puede escribir en él —
-   así que una copia fallida o parcial jamás puede perder ni corromper nada
-   del original, y simplemente se puede reintentar.
-3. Los contenedores y volúmenes originales nunca se detienen, eliminan ni se
-   tocan de ninguna forma, ni antes, ni durante, ni después de la
-   importación. Ambas copias pueden correr en paralelo indefinidamente;
-   limpiar la vieja (si se quiere) es un paso aparte y manual.
+La adopción escribe un claim de control exclusivo y revisionado y registra
+los recursos existentes en SQLite. **No** copia, renombra, detiene, recrea ni
+reemplaza contenedores, volúmenes, puertos, configuración, imágenes o secretos
+de Podman. Después, las operaciones de ciclo de vida se delegan al driver del
+manager. Desvincular libera el claim y elimina únicamente el registro del hub,
+sin alterar los recursos ni su estado. `deploy.py` rechaza operaciones
+manuales mientras el hub controle la instancia.
 
-Como cada gestor de juego guarda su propia configuración (mods activos,
-interruptores de arranque, etc.) dentro de su volumen principal de datos en
-vez del archivo de config montado como bind mount, importar también trae
-eso, no solo las partidas guardadas — solo el login de administrador del
-panel se genera nuevo para la instancia importada, igual que con cualquier
-otra instancia que crea el hub.
+Consulta el [contrato canónico v1](docs/architecture/server-manager-contract-v1.md),
+la [guía para nuevos managers](docs/architecture/guia-nuevo-server-manager.md),
+la [política de secretos](docs/architecture/politica-secretos.md),
+el [checklist para nuevos managers](docs/architecture/new-manager-checklist.md)
+y el [runbook de adopción de ARMA 3](docs/runbooks/arma3-adoption.md). Project
+Zomboid continúa en el adaptador de plantillas legacy, sin descubrimiento ni
+adopción hasta que implemente el contrato.
 
 ## Instalación
 

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import * as TOML from "smol-toml";
 import type { GameType, InstanceRow } from "../infra/sqliteStore.js";
@@ -8,9 +8,16 @@ import { PortAllocator } from "../infra/portAllocator.js";
 import * as podman from "../infra/podman.js";
 import { allPortsFree } from "../infra/portCheck.js";
 import { getHeadCommit, pull } from "../infra/git.js";
-import { getTemplate, listTemplates } from "../templates/index.js";
 import type { GameTemplate, PortMap } from "../templates/types.js";
 import { makeSlug } from "./slug.js";
+import {
+  getContractAdapter,
+  getLegacyTemplateAdapter,
+  listContractAdapters,
+  listLegacyTemplateAdapters,
+} from "../adapters/index.js";
+import { validateRuntimeManifest } from "../adapters/driverClient.js";
+import type { DiscoveryCandidate, RuntimeInstanceManifest } from "../adapters/index.js";
 
 const MAX_PORT_ALLOCATION_ATTEMPTS = 50;
 
@@ -33,6 +40,8 @@ export interface InstanceSummary {
   crashRestartCount: number;
   /** True once "Recreate from latest image" was requested while this instance was running — the swap is deferred until it next starts (manually, on schedule, or via crash recovery) instead of interrupting it immediately. */
   pendingRecreate: boolean;
+  origin: InstanceRow["origin"];
+  credentialsMode: "recoverable-legacy" | "manager-owned";
 }
 
 export interface CreateInstanceResult {
@@ -76,16 +85,6 @@ export interface InstanceMetrics {
   diskUsedBytes: number;
 }
 
-export interface StandaloneDetection {
-  gameType: GameType;
-  apiContainer: string;
-  frontendContainer: string;
-  apiStatus: podman.ContainerStatus;
-  frontendStatus: podman.ContainerStatus;
-  /** Standalone volume names that importStandalone() would seed a new instance's volumes from. */
-  volumes: string[];
-}
-
 function gameImagesKey(gameType: GameType): string {
   return `game-images:${gameType}`;
 }
@@ -94,13 +93,18 @@ export class InstanceManager {
   /** Game types with a rebuild currently in flight, so a second click (or a second browser tab) can't kick off a duplicate concurrent `podman build`. */
   /** Which operation (if any) is in flight for a game type — pull and rebuild share this lock so a rebuild can never read a working tree that a concurrent pull is still rewriting, and vice versa. */
   private readonly activeGameOperations = new Map<GameType, "pull" | "rebuild">();
+  private readonly controllerId: string;
 
   constructor(
     private readonly store: SqliteStore,
     private readonly allocator: PortAllocator,
     private readonly reposRoot: string,
     private readonly dataDir: string,
-  ) {}
+  ) {
+    const existing = this.store.getRaw("hub-controller-id");
+    this.controllerId = existing ?? `hub-${randomUUID()}`;
+    if (!existing) this.store.setRaw("hub-controller-id", this.controllerId);
+  }
 
   private instanceDir(slug: string): string {
     return path.join(this.dataDir, "instances", slug);
@@ -116,63 +120,140 @@ export class InstanceManager {
     return this.provisionInstance(gameType, name, mock, memoryMb, diskGb);
   }
 
-  /** Whether a standalone (non-hub, manually deployed) copy of a game's stack is present on this host, and if so, what it's called. Detection is purely by container name/status — the hub never has any other way of knowing about a deployment it didn't create. */
-  async detectStandalone(gameType: GameType): Promise<StandaloneDetection | null> {
-    const template = getTemplate(gameType);
-    const { api, frontend } = template.standaloneContainerNames;
-    const [apiStatus, frontendStatus] = await Promise.all([
-      podman.containerStatus(api),
-      podman.containerStatus(frontend),
-    ]);
-    if (apiStatus === "missing" && frontendStatus === "missing") return null;
-    return {
-      gameType,
-      apiContainer: api,
-      frontendContainer: frontend,
-      apiStatus,
-      frontendStatus,
-      volumes: template.standaloneVolumeNames,
-    };
+  /** Contract-based discovery is read-only and delegates identity validation to each trusted adapter/driver. */
+  async discover(): Promise<DiscoveryCandidate[]> {
+    const results = await Promise.all(listContractAdapters().map((adapter) => adapter.discover()));
+    const registered = new Set(
+      this.store
+        .listInstances()
+        .map((row) => row.externalInstanceId)
+        .filter((id): id is string => id !== null),
+    );
+    return results.flat().map((candidate) =>
+      registered.has(candidate.instanceId) ? { ...candidate, status: "already-claimed" as const } : candidate,
+    );
   }
 
-  /**
-   * Creates a brand new hub-managed instance exactly like create(), except
-   * its volumes are seeded from a detected standalone deployment's volumes
-   * instead of starting empty — this is how an existing manually-deployed
-   * server (with real save data and its own settings, both of which live
-   * inside these volumes) gets brought under hub management without ever
-   * touching the original. The standalone deployment itself (containers and
-   * volumes both) is left completely untouched; this only ever reads from
-   * it, read-only, at the filesystem level (see podman.copyVolume).
-   */
-  async importStandalone(gameType: GameType, name: string, memoryMb: number, diskGb: number): Promise<CreateInstanceResult> {
-    const template = getTemplate(gameType);
-    const detection = await this.detectStandalone(gameType);
-    if (!detection) {
-      throw new Error(
-        `no standalone ${gameType} deployment found (looked for containers "${template.standaloneContainerNames.api}" / "${template.standaloneContainerNames.frontend}")`,
-      );
+  /** Repairs either side of the claim/SQLite crash window before maintenance starts. */
+  async reconcileClaims(): Promise<void> {
+    const rawCandidates = (await Promise.all(listContractAdapters().map((adapter) => adapter.discover()))).flat();
+    const rows = this.store.listInstances();
+
+    for (const row of rows.filter((candidate) => candidate.origin === "adopted" && candidate.externalInstanceId)) {
+      const candidate = rawCandidates.find((item) => item.instanceId === row.externalInstanceId);
+      if (!candidate || !row.managerId) continue;
+      if (candidate.status === "ready") {
+        const claim = await getContractAdapter(row.managerId).claim(candidate, this.controllerId);
+        this.store.updateContractState(row.id, JSON.stringify(claim.manifest), claim.controller.revision);
+      } else if (candidate.status === "already-claimed" && candidate.controller?.controllerId === this.controllerId) {
+        this.store.updateContractState(row.id, JSON.stringify(candidate.manifest), candidate.controller.revision);
+      } else if (candidate.controller && candidate.controller.controllerId !== this.controllerId) {
+        this.store.updateInstanceLifecycle(row.id, "error", "instance ownership moved to another controller");
+      }
     }
-    return this.provisionInstance(gameType, name, false, memoryMb, diskGb, template.standaloneVolumeNames);
+
+    const registered = new Set(rows.map((row) => row.externalInstanceId).filter(Boolean));
+    for (const candidate of rawCandidates) {
+      if (
+        !registered.has(candidate.instanceId) &&
+        candidate.status === "already-claimed" &&
+        candidate.controller?.controllerId === this.controllerId
+      ) {
+        await this.adopt(candidate.candidateId, `${candidate.displayName} (recovered)`);
+      }
+    }
   }
 
-  /**
-   * Shared by create() and importStandalone(). When seedFromVolumes is
-   * given, each new volume that has a same-named standalone counterpart is
-   * populated from it (read-only source, see podman.copyVolume) before the
-   * containers ever start; any hub volume with no standalone counterpart
-   * (e.g. pz's backups volume) is simply created empty, same as a normal
-   * create().
-   */
+  /** Claims and registers the existing resources in place. No container, volume, config or secret is copied. */
+  async adopt(candidateId: string, name: string): Promise<InstanceSummary> {
+    const candidate = (await this.discover()).find((item) => item.candidateId === candidateId);
+    if (!candidate) throw new Error(`discovery candidate not found: ${candidateId}`);
+    const alreadyRegistered = this.store.listInstances().some((row) => row.externalInstanceId === candidate.instanceId);
+    if (alreadyRegistered) throw new Error("instance is already registered in this hub");
+    const ownedByThisHub = candidate.controller?.controllerId === this.controllerId;
+    if (candidate.status !== "ready" && !(candidate.status === "already-claimed" && ownedByThisHub)) {
+      throw new Error(`candidate cannot be adopted (${candidate.status}): ${candidate.issues.join("; ") || "preflight failed"}`);
+    }
+
+    const adapter = getContractAdapter(candidate.managerId);
+    const claim = await adapter.claim(candidate, this.controllerId);
+    const manifest = validateRuntimeManifest(claim.manifest);
+    const id = randomUUID();
+    const slug = makeSlug(name);
+    try {
+      const ports = manifest.resources.ports;
+      const names = manifest.resources.containers;
+      const [apiStatus, frontendStatus] = await Promise.all([
+        podman.containerStatus(names.api),
+        podman.containerStatus(names.frontend),
+      ]);
+      this.store.insertInstance({
+        id,
+        slug,
+        gameType: manifest.gameType,
+        name,
+        lifecycle: "created",
+        ports: JSON.stringify(ports),
+        errorMessage: null,
+        memoryMb: 0,
+        diskGb: 0,
+        mock: false,
+        desiredState: apiStatus === "running" && frontendStatus === "running" ? "running" : "stopped",
+        imageCommitApi: null,
+        imageCommitFrontend: null,
+        origin: "adopted",
+        managerId: manifest.managerId,
+        externalInstanceId: manifest.instanceId,
+        contractVersion: manifest.contractVersion,
+        driverRef: JSON.stringify(manifest.driver.command),
+        resourceManifest: JSON.stringify(manifest),
+        controllerRevision: claim.controller.revision,
+      });
+    } catch (error) {
+      if (!ownedByThisHub) {
+        await adapter.release(manifest, this.controllerId, claim.controller.revision).catch(() => undefined);
+      }
+      throw error;
+    }
+
+    this.store.insertMaintenanceLog({
+      scope: "instance",
+      instanceId: id,
+      gameType: manifest.gameType,
+      action: "adopt-in-place",
+      detail: `claimed existing instance ${manifest.instanceId}; no runtime resources were copied or renamed`,
+      success: true,
+    });
+    return this.toSummaryWithLiveStatus(this.store.getInstance(id)!);
+  }
+
+  /** Releases exclusive ownership and forgets an adopted instance without touching runtime resources. */
+  async detach(id: string): Promise<void> {
+    const row = this.requireRow(id);
+    if (row.origin !== "adopted") throw new Error("only an adopted instance can be detached");
+    const manifest = this.requireRuntimeManifest(row);
+    const revision = row.controllerRevision;
+    if (revision === null || !row.managerId) throw new Error("adopted instance is missing controller metadata");
+    await getContractAdapter(row.managerId).release(manifest, this.controllerId, revision);
+    this.store.insertMaintenanceLog({
+      scope: "instance",
+      instanceId: id,
+      gameType: row.gameType,
+      action: "detach",
+      detail: `released ${manifest.instanceId}; containers, volumes, config and secrets left unchanged`,
+      success: true,
+    });
+    this.store.deleteInstance(id);
+  }
+
   private async provisionInstance(
     gameType: GameType,
     name: string,
     mock: boolean,
     memoryMb: number,
     diskGb: number,
-    seedFromVolumes?: string[],
   ): Promise<CreateInstanceResult> {
-    const template = getTemplate(gameType);
+    const template = getLegacyTemplateAdapter(gameType).template;
     const id = randomUUID();
     const slug = makeSlug(name);
     const { webPort, ports } = await this.allocateFreePorts(template, gameType);
@@ -197,12 +278,16 @@ export class InstanceManager {
     });
 
     try {
-      await mkdir(configDir, { recursive: true });
+      await mkdir(configDir, { recursive: true, mode: 0o700 });
+      await chmod(configDir, 0o700);
       await writeFile(path.join(configDir, "manager.toml"), template.renderConfigToml(ctx, ports), "utf-8");
       const secrets = template.generateSecrets(ctx);
-      await writeFile(path.join(configDir, "manager.secrets.toml"), secrets.content, "utf-8");
+      const secretsPath = path.join(configDir, "manager.secrets.toml");
+      await writeFile(secretsPath, secrets.content, { encoding: "utf-8", mode: 0o600, flag: "wx" });
+      await chmod(secretsPath, 0o600);
 
       await this.ensureImages(template);
+      if (template.secretName) await podman.secretCreate(template.secretName(slug), secretsPath);
       const imageRecord = this.store.getJson<GameImagesRecord>(gameImagesKey(gameType));
       this.store.setImageCommits(id, imageRecord?.apiCommit ?? null, imageRecord?.frontendCommit ?? null);
 
@@ -218,20 +303,6 @@ export class InstanceManager {
         } else {
           await podman.volumeCreate(volume.name);
         }
-      }
-
-      if (seedFromVolumes && seedFromVolumes.length > 0) {
-        for (const sourceVolume of seedFromVolumes) {
-          await podman.copyVolume(sourceVolume, `${sourceVolume}-${slug}`, template.images.api);
-        }
-        this.store.insertMaintenanceLog({
-          scope: "instance",
-          instanceId: id,
-          gameType,
-          action: "import-standalone",
-          detail: `seeded from standalone deployment volumes (read-only, left untouched): ${seedFromVolumes.join(", ")}`,
-          success: true,
-        });
       }
 
       await podman.run([...template.apiRunArgs(ctx, ports), template.images.api]);
@@ -300,6 +371,9 @@ export class InstanceManager {
 
   async getCredentials(id: string): Promise<InstanceCredentials> {
     const row = this.requireRow(id);
+    if (row.origin === "adopted") {
+      throw new Error("adopted instances keep manager-owned secrets; rotate credentials through the manager instead");
+    }
     const secretsPath = path.join(this.instanceDir(row.slug), "config", "manager.secrets.toml");
     const raw = await readFile(secretsPath, "utf-8");
     const parsed = TOML.parse(raw) as { web?: { password?: unknown } };
@@ -309,10 +383,12 @@ export class InstanceManager {
 
   async start(id: string): Promise<void> {
     const row = this.requireRow(id);
-    if (row.pendingRecreate) {
+    if (row.origin === "adopted") {
+      await this.adoptedLifecycle(row, "start");
+    } else if (row.pendingRecreate) {
       await this.swapToLatestImage(row);
     } else {
-      const template = getTemplate(row.gameType);
+      const template = getLegacyTemplateAdapter(row.gameType).template;
       const names = template.containerNames(row.slug);
       await podman.start(names.api);
       await podman.start(names.frontend);
@@ -323,19 +399,24 @@ export class InstanceManager {
 
   async stop(id: string): Promise<void> {
     const row = this.requireRow(id);
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
     this.store.setDesiredState(id, "stopped");
-    await podman.stop(names.frontend);
-    await podman.stop(names.api);
+    if (row.origin === "adopted") {
+      await this.adoptedLifecycle(row, "stop");
+    } else {
+      const names = this.containerNames(row);
+      await podman.stop(names.frontend);
+      await podman.stop(names.api);
+    }
   }
 
   async restart(id: string): Promise<void> {
     const row = this.requireRow(id);
-    if (row.pendingRecreate) {
+    if (row.origin === "adopted") {
+      await this.adoptedLifecycle(row, "restart");
+    } else if (row.pendingRecreate) {
       await this.swapToLatestImage(row);
     } else {
-      const template = getTemplate(row.gameType);
+      const template = getLegacyTemplateAdapter(row.gameType).template;
       const names = template.containerNames(row.slug);
       await podman.restart(names.api);
       await podman.restart(names.frontend);
@@ -351,10 +432,12 @@ export class InstanceManager {
    */
   async restartForRecovery(id: string): Promise<void> {
     const row = this.requireRow(id);
-    if (row.pendingRecreate) {
+    if (row.origin === "adopted") {
+      await this.adoptedLifecycle(row, "restart");
+    } else if (row.pendingRecreate) {
       await this.swapToLatestImage(row);
     } else {
-      const template = getTemplate(row.gameType);
+      const template = getLegacyTemplateAdapter(row.gameType).template;
       const names = template.containerNames(row.slug);
       await podman.restart(names.api);
       await podman.restart(names.frontend);
@@ -363,8 +446,7 @@ export class InstanceManager {
 
   /** Whether both of an instance's containers are currently running. */
   async isRunning(row: InstanceRow): Promise<boolean> {
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
+    const names = this.containerNames(row);
     const [apiStatus, frontendStatus] = await Promise.all([
       podman.containerStatus(names.api),
       podman.containerStatus(names.frontend),
@@ -383,6 +465,9 @@ export class InstanceManager {
    */
   async recreate(id: string): Promise<void> {
     const row = this.requireRow(id);
+    if (row.origin === "adopted") {
+      throw new Error("adopted instance updates must be performed by its manager driver");
+    }
 
     if (await this.isRunning(row)) {
       this.store.setPendingRecreate(id, true);
@@ -417,7 +502,7 @@ export class InstanceManager {
 
   /** Low-level image swap shared by recreate() and the pendingRecreate catch-up in start()/restart()/restartForRecovery() — does not touch desiredState or crashRestartCount, since those two callers each own that decision differently. */
   private async swapToLatestImage(row: InstanceRow): Promise<void> {
-    const template = getTemplate(row.gameType);
+    const template = getLegacyTemplateAdapter(row.gameType).template;
     const ports = JSON.parse(row.ports) as PortMap;
     const configDir = path.join(this.instanceDir(row.slug), "config");
     const ctx = {
@@ -460,6 +545,9 @@ export class InstanceManager {
    */
   async updateResources(id: string, memoryMb: number, diskGb: number): Promise<{ memoryApplied: boolean }> {
     const row = this.requireRow(id);
+    if (row.origin === "adopted") {
+      throw new Error("adopted instance resources can only be changed through a declared manager-driver capability");
+    }
     if (!Number.isInteger(memoryMb) || memoryMb < 512) {
       throw new Error("memoryMb must be at least 512");
     }
@@ -467,8 +555,7 @@ export class InstanceManager {
       throw new Error("diskGb must be 0 (unlimited) or greater");
     }
 
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
+    const names = this.containerNames(row);
     const memoryApplied = await podman.updateMemory(names.api, memoryMb);
 
     this.store.setResourceLimits(id, memoryMb, diskGb);
@@ -486,8 +573,12 @@ export class InstanceManager {
 
   async delete(id: string, removeVolumes: boolean): Promise<void> {
     const row = this.requireRow(id);
+    if (row.origin === "adopted") {
+      await this.detach(id);
+      return;
+    }
     this.store.updateInstanceLifecycle(id, "deleting");
-    const template = getTemplate(row.gameType);
+    const template = getLegacyTemplateAdapter(row.gameType).template;
     const names = template.containerNames(row.slug);
 
     await podman.removeContainer(names.frontend);
@@ -498,6 +589,7 @@ export class InstanceManager {
         await podman.volumeRemove(volume.name);
       }
     }
+    if (template.secretName) await podman.secretRemove(template.secretName(row.slug));
     await rm(this.instanceDir(row.slug), { recursive: true, force: true });
     this.store.deleteInstance(id);
   }
@@ -514,7 +606,7 @@ export class InstanceManager {
   async rebuildImages(gameType: GameType): Promise<GameImagesRecord> {
     this.acquireGameOperation(gameType, "rebuild");
     try {
-      const template = getTemplate(gameType);
+      const template = getLegacyTemplateAdapter(gameType).template;
       const contextDir = path.join(this.reposRoot, template.repoDirName);
       const commit = await getHeadCommit(contextDir);
       const builtAt = new Date().toISOString();
@@ -547,7 +639,7 @@ export class InstanceManager {
   async pullLatest(gameType: GameType): Promise<{ success: boolean; message: string }> {
     this.acquireGameOperation(gameType, "pull");
     try {
-      const template = getTemplate(gameType);
+      const template = getLegacyTemplateAdapter(gameType).template;
       const contextDir = path.join(this.reposRoot, template.repoDirName);
       const result = await pull(contextDir);
       this.store.insertMaintenanceLog({
@@ -578,7 +670,7 @@ export class InstanceManager {
   async imageStatus(): Promise<GameImageStatus[]> {
     const rows = this.store.listInstances();
     return Promise.all(
-      listTemplates().map(async (template) => {
+      listLegacyTemplateAdapters().map(async ({ template }) => {
         const contextDir = path.join(this.reposRoot, template.repoDirName);
         const currentCommit = await getHeadCommit(contextDir);
         const record = this.store.getJson<GameImagesRecord>(gameImagesKey(template.gameType));
@@ -586,6 +678,7 @@ export class InstanceManager {
           .filter(
             (row) =>
               row.gameType === template.gameType &&
+              row.origin !== "adopted" &&
               row.lifecycle === "created" &&
               currentCommit !== null &&
               row.imageCommitApi !== currentCommit,
@@ -621,13 +714,12 @@ export class InstanceManager {
   }
 
   private async computeMetrics(row: InstanceRow, volumeUsage: Map<string, number>): Promise<InstanceMetrics> {
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
+    const names = this.containerNames(row);
     const stats = await podman.containerStats(names.api);
-    const diskUsedBytes = template
-      .volumes(row.slug)
-      .filter((volume) => volume.sizeable)
-      .reduce((sum, volume) => sum + (volumeUsage.get(volume.name) ?? 0), 0);
+    const sizeableVolumes = row.origin === "adopted"
+      ? this.requireRuntimeManifest(row).resources.sizeableVolumes ?? []
+      : getLegacyTemplateAdapter(row.gameType).template.volumes(row.slug).filter((volume) => volume.sizeable).map((volume) => volume.name);
+    const diskUsedBytes = sizeableVolumes.reduce((sum, volume) => sum + (volumeUsage.get(volume) ?? 0), 0);
 
     return {
       cpuPercent: stats?.cpuPercent ?? null,
@@ -673,20 +765,46 @@ export class InstanceManager {
     return row;
   }
 
+  private requireRuntimeManifest(row: InstanceRow): RuntimeInstanceManifest {
+    if (!row.resourceManifest) throw new Error(`instance ${row.id} has no runtime manifest`);
+    return validateRuntimeManifest(JSON.parse(row.resourceManifest));
+  }
+
+  private containerNames(row: InstanceRow): { api: string; frontend: string } {
+    if (row.origin === "adopted") {
+      const containers = this.requireRuntimeManifest(row).resources.containers;
+      return { api: containers.api, frontend: containers.frontend };
+    }
+    return getLegacyTemplateAdapter(row.gameType).template.containerNames(row.slug);
+  }
+
+  private async adoptedLifecycle(row: InstanceRow, action: "start" | "stop" | "restart"): Promise<void> {
+    if (!row.managerId || row.controllerRevision === null) {
+      throw new Error("adopted instance is missing controller metadata");
+    }
+    await getContractAdapter(row.managerId).lifecycle(
+      this.requireRuntimeManifest(row),
+      this.controllerId,
+      row.controllerRevision,
+      action,
+    );
+  }
+
   private toSummary(row: InstanceRow): InstanceSummary {
-    const template = getTemplate(row.gameType);
     const ports = JSON.parse(row.ports) as PortMap;
+    const manifest = row.origin === "adopted" ? this.requireRuntimeManifest(row) : null;
+    const template = manifest ? null : getLegacyTemplateAdapter(row.gameType).template;
     return {
       id: row.id,
       slug: row.slug,
       gameType: row.gameType,
-      gameDisplayName: template.displayName,
+      gameDisplayName: manifest?.displayName ?? template!.displayName,
       name: row.name,
       lifecycle: row.lifecycle,
       errorMessage: row.errorMessage,
       status: row.lifecycle === "created" ? "stopped" : row.lifecycle,
       ports,
-      panelUrl: template.panelUrl(ports),
+      panelUrl: manifest ? `http://127.0.0.1:${ports.web}` : template!.panelUrl(ports),
       createdAt: row.createdAt,
       memoryMb: row.memoryMb,
       diskGb: row.diskGb,
@@ -694,6 +812,8 @@ export class InstanceManager {
       restartSchedule: row.restartSchedule,
       crashRestartCount: row.crashRestartCount,
       pendingRecreate: row.pendingRecreate,
+      origin: row.origin,
+      credentialsMode: row.origin === "adopted" ? "manager-owned" : "recoverable-legacy",
     };
   }
 
@@ -705,8 +825,7 @@ export class InstanceManager {
     const summary = this.toSummary(row);
     if (row.lifecycle !== "created") return summary;
 
-    const template = getTemplate(row.gameType);
-    const names = template.containerNames(row.slug);
+    const names = this.containerNames(row);
     const resolved = statuses ?? (await podman.containerStatuses());
     const apiStatus = resolved.get(names.api) ?? "missing";
     const frontendStatus = resolved.get(names.frontend) ?? "missing";

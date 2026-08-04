@@ -64,11 +64,11 @@ verwendet.
   Image-Neuerstellung und Instanz-Recreate per Klick, Selbstaktualisierung
   des Hubs, sowie tägliche Bereinigung verwaister Images — siehe
   [Wartung](#wartung) weiter unten.
-- Erkennt eine eigenständige (vor dem Hub entstandene, manuell bereitgestellte)
-  Kopie von `arma_server`/`proyect_zomboid`, die bereits auf dem Host läuft,
-  und bietet "In Hub importieren" per Klick an — siehe
-  [Ein bestehendes Deployment importieren](#ein-bestehendes-deployment-importieren)
-  weiter unten.
+- Erkennt kompatible ARMA-3-Deployments über den Server-Manager-v1-Vertrag
+  und bietet eine **Übernahme vor Ort**, ohne Container, Volumes,
+  Konfiguration oder Secrets zu kopieren — siehe
+  [Ein bestehendes Deployment übernehmen](#ein-bestehendes-deployment-übernehmen).
+  Project Zomboid bleibt im Legacy-Adapter und kann noch nicht übernommen werden.
 
 ## Wartung
 
@@ -202,40 +202,30 @@ Für eine neue Instanz des Spiels `G`:
 Das Löschen einer Instanz entfernt ihre Container, ihr Netzwerk und
 (optional) ihre Volumes sowie ihr generiertes Konfigurationsverzeichnis.
 
-### Ein bestehendes Deployment importieren
+### Ein bestehendes Deployment übernehmen
 
-Lief `arma_server`/`proyect_zomboid` bereits auf dem Host, bevor Sie den Hub
-zu benutzen begannen — auf die übliche Art bereitgestellt (`deploy.py` /
-`deploy/remote.ts`, nicht über den Hub) —, erkennt das Dashboard das und
-bietet an, es unter die Verwaltung des Hubs zu bringen, ohne von vorne
-anzufangen. Es ist eine **Kopie**, kein Verschieben:
+Ein für den Server-Manager-v1-Vertrag gepatchtes ARMA-3-Deployment
+veröffentlicht eine stabile UUID, ein atomares Runtime-Manifest ohne Secrets,
+gemeinsame OCI-Labels und einen lokalen Treiber. Der Hub validiert die
+vollständige Topologie unter demselben Host und Unix-Benutzer, bevor er die
+Übernahme anbietet; ein Containername allein ist niemals ausreichend.
 
-1. Die Erkennung sucht nach den tatsächlichen Produktions-Containernamen
-   dieses Spiels (verifiziert anhand der echten Deploy-Skripte, nicht nur
-   der lokalen `podman-compose.yml` für die Entwicklung — beide stimmen
-   nicht immer überein; das echte Deployment von `proyect_zomboid` nutzt
-   zum Beispiel andere Containernamen und ein Volume weniger als seine
-   eigene Compose-Datei).
-2. Der Import erstellt eine neue, vom Hub verwaltete Instanz genau wie
-   Create (eigener Slug, eigene Ports, Netzwerk, Volumes, generierte
-   Konfiguration, neuer Admin-Login) — und befüllt, bevor sie überhaupt
-   gestartet wird, jedes neue Volume aus dem passenden eigenständigen
-   Volume. Das Quell-Volume wird während dieser Kopie **nur lesend**
-   eingebunden — das ist keine bloße Konvention, der Container kann
-   physisch nicht hineinschreiben —, sodass eine fehlgeschlagene oder
-   unvollständige Kopie niemals etwas am Original verlieren oder
-   beschädigen kann und einfach erneut versucht werden kann.
-3. Die ursprünglichen Container und Volumes werden nie gestoppt, entfernt
-   oder sonst irgendwie angefasst — weder vor, während noch nach dem
-   Import. Beide Kopien können beliebig lange parallel laufen; die alte
-   aufzuräumen (falls gewünscht) ist ein separater, manueller Schritt.
+Die Übernahme schreibt einen exklusiven, revisionierten Controller-Claim und
+registriert die vorhandenen Ressourcen in SQLite. Sie kopiert, benennt um,
+stoppt, erstellt oder ersetzt **keine** Container, Volumes, Ports,
+Konfigurationen, Images oder Podman-Secrets. Lebenszyklusaktionen werden
+anschließend an den Manager-Treiber delegiert. Das Trennen gibt den Claim
+frei und entfernt nur den Hub-Eintrag, ohne Ressourcen oder deren Zustand zu
+verändern. `deploy.py` weist manuelle Änderungen zurück, solange der Hub die
+Instanz kontrolliert.
 
-Da jeder Spiel-Manager seine eigenen Einstellungen (aktive Mods,
-Start-Schalter usw.) innerhalb seines Haupt-Datenvolumes speichert statt in
-der eingebundenen Config-Datei, bringt der Import auch das mit, nicht nur
-Spielstände — nur der Admin-Login des Panels wird für die importierte
-Instanz neu generiert, genau wie bei jeder anderen vom Hub erstellten
-Instanz.
+Siehe den [kanonischen v1-Vertrag](docs/architecture/server-manager-contract-v1.md),
+den [Leitfaden für neue Manager](docs/architecture/guia-nuevo-server-manager.md),
+die [Secret-Richtlinie](docs/architecture/politica-secretos.md), die
+[Checkliste für neue Manager](docs/architecture/new-manager-checklist.md)
+und das [ARMA-3-Übernahme-Runbook](docs/runbooks/arma3-adoption.md). Project
+Zomboid bleibt im Legacy-Template-Adapter ohne Erkennung und Übernahme, bis
+es den Vertrag implementiert.
 
 ## Einrichtung
 

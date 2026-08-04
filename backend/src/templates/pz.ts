@@ -58,15 +58,6 @@ export const pzTemplate: GameTemplate = {
     return { api: `pz-api-${slug}`, frontend: `pz-frontend-${slug}` };
   },
 
-  // Verified against proyect_zomboid's actual deploy/remote.ts, which
-  // diverges from its own podman-compose.yml: real deploys name containers
-  // "pz-manager-*" (compose has no container_name, so compose would default
-  // to something else entirely) and mount only 3 volumes, not compose's 4 —
-  // there's no standalone equivalent of the hub's pz-backups-<slug> volume,
-  // so that one is just created empty on import, nothing to seed it from.
-  standaloneContainerNames: { api: "pz-manager-api", frontend: "pz-manager-frontend" },
-  standaloneVolumeNames: ["pz-install", "pz-data", "pz-steamcmd"],
-
   networkName(slug: string): string {
     return `pz-net-${slug}`;
   },

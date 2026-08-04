@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   deleteInstance,
-  detectStandalone,
+  detachInstance,
+  listDiscovery,
   formatBytes,
   getAllMetrics,
   getImageStatus,
@@ -16,9 +17,9 @@ import {
   type GameTemplateInfo,
   type InstanceMetrics,
   type InstanceSummary,
-  type StandaloneDetection,
+  type DiscoveryCandidate,
 } from "../api/client.js";
-import { ImportStandaloneModal } from "./ImportStandaloneModal.js";
+import { AdoptInstanceModal } from "./AdoptInstanceModal.js";
 import { InstanceCard } from "./InstanceCard.js";
 import { NewInstanceModal } from "./NewInstanceModal.js";
 
@@ -75,14 +76,16 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showNewInstance, setShowNewInstance] = useState(false);
   const [search, setSearch] = useState("");
-  const [standaloneDetections, setStandaloneDetections] = useState<StandaloneDetection[]>([]);
-  const [importingGameType, setImportingGameType] = useState<StandaloneDetection | null>(null);
+  const [discoveryCandidates, setDiscoveryCandidates] = useState<DiscoveryCandidate[]>([]);
+  const [adoptingCandidate, setAdoptingCandidate] = useState<DiscoveryCandidate | null>(null);
 
-  const checkStandalone = async (templateList: GameTemplateInfo[]) => {
-    const results = await Promise.all(
-      templateList.map((t) => detectStandalone(t.gameType).catch(() => ({ detection: null }))),
-    );
-    setStandaloneDetections(results.map((r) => r.detection).filter((d): d is StandaloneDetection => d !== null));
+  const checkDiscovery = async () => {
+    try {
+      const result = await listDiscovery();
+      setDiscoveryCandidates(result.candidates);
+    } catch {
+      setDiscoveryCandidates([]);
+    }
   };
 
   const refresh = async () => {
@@ -110,8 +113,8 @@ export function Dashboard() {
   useEffect(() => {
     listTemplates().then((res) => {
       setTemplates(res.templates);
-      checkStandalone(res.templates);
     });
+    checkDiscovery();
     refresh();
     refreshMetrics();
     const interval = setInterval(refresh, POLL_MS);
@@ -146,17 +149,14 @@ export function Dashboard() {
 
       {error && <p role="alert">{error}</p>}
 
-      {standaloneDetections.map((detection) => {
-        const template = templates.find((t) => t.gameType === detection.gameType);
-        if (!template) return null;
+      {discoveryCandidates.map((candidate) => {
         return (
-          <div className="standalone-banner" key={detection.gameType}>
+          <div className="standalone-banner" key={candidate.candidateId}>
             <span>
-              Found an existing standalone {template.displayName} deployment on this host (
-              <code>{detection.apiContainer}</code>: {detection.apiStatus}, <code>{detection.frontendContainer}</code>:{" "}
-              {detection.frontendStatus}) that isn't managed by the hub yet.
+              Found {candidate.displayName} instance <code>{candidate.instanceId.slice(0, 12)}</code>: {candidate.status}.
+              {candidate.issues.length > 0 && ` ${candidate.issues.join("; ")}`}
             </span>
-            <button onClick={() => setImportingGameType(detection)}>Import into hub</button>
+            {candidate.status === "ready" && <button onClick={() => setAdoptingCandidate(candidate)}>Adopt in place</button>}
           </div>
         );
       })}
@@ -203,7 +203,8 @@ export function Dashboard() {
                 return result;
               }}
               onDelete={async (id, removeVolumes) => {
-                await deleteInstance(id, removeVolumes);
+                if (instance.origin === "adopted") await detachInstance(id);
+                else await deleteInstance(id, removeVolumes);
                 removeFromList(id);
               }}
             />
@@ -222,22 +223,17 @@ export function Dashboard() {
         />
       )}
 
-      {importingGameType &&
-        (() => {
-          const template = templates.find((t) => t.gameType === importingGameType.gameType);
-          if (!template) return null;
-          return (
-            <ImportStandaloneModal
-              detection={importingGameType}
-              template={template}
-              onClose={() => {
-                setImportingGameType(null);
-                refresh();
-              }}
-              onImported={(instance) => setInstances((prev) => [...prev, instance])}
-            />
-          );
-        })()}
+      {adoptingCandidate && (
+        <AdoptInstanceModal
+          candidate={adoptingCandidate}
+          onClose={() => {
+            setAdoptingCandidate(null);
+            checkDiscovery();
+            refresh();
+          }}
+          onAdopted={(instance) => setInstances((prev) => [...prev, instance])}
+        />
+      )}
     </div>
   );
 }
