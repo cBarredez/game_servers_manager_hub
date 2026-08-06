@@ -61,7 +61,7 @@ verwendet.
   nächsten Recreate dieser Instanz angewendet.
 - Unbeaufsichtigte Wartung: automatischer Neustart bei Absturz, optionale
   tägliche geplante Neustarts, Verfolgung von Quellcode-Updates mit
-  Image-Neuerstellung und Instanz-Recreate per Klick, Selbstaktualisierung
+  Image-Neuerstellung und Instanz-Recreate per Klick, externes Deployment
   des Hubs, sowie tägliche Bereinigung verwaister Images — siehe
   [Wartung](#wartung) weiter unten.
 - Erkennt kompatible ARMA-3-Deployments über den Server-Manager-v1-Vertrag
@@ -73,10 +73,8 @@ verwendet.
 ## Wartung
 
 Ein Hintergrund-Scheduler (`infra/scheduler.ts`, tickt alle 60s) steuert die
-meisten der folgenden automatischen Funktionen; die Prüfung auf
-Quellcode-Updates (sowohl für Spiel-Images als auch für den Hub selbst) ist
-billig genug, um stattdessen live bei Bedarf berechnet zu werden. Alles davon
-ist über den Tab **Maintenance** konfigurierbar:
+Wartung der Instanzen. Prüfungen für Spiel-Images werden bei Bedarf live
+berechnet. Dies ist über den Tab **Maintenance** konfigurierbar:
 
 - **Automatischer Neustart bei Absturz**: Wenn die Container einer Instanz
   unerwartet stoppen, während sie eigentlich laufen sollte (d. h. niemand hat
@@ -119,19 +117,10 @@ ist über den Tab **Maintenance** konfigurierbar:
   Spieltyp, damit sie nie gleichzeitig auf demselben Arbeitsverzeichnis
   laufen. **Einschränkung**: erkennt nur committete Änderungen an den
   Geschwister-Repos, keine uncommitteten lokalen Bearbeitungen.
-- **Hub-Selbstaktualisierung**: unabhängig von der Image-Verfolgung oben —
-  hierbei geht es um den *eigenen* Quellcode des Hubs, nicht um
-  `arma_server`/`proyect_zomboid`. Der Maintenance-Tab zeigt, ob das
-  Git-Remote des Hubs Commits enthält, die der laufende Hub noch nicht hat
-  (`git fetch` + Vergleich mit `HEAD`). "Update & restart hub" führt
-  `git pull --ff-only` aus, dann `npm install` (nur falls sich tatsächlich
-  ein `package.json`/`package-lock.json` geändert hat), baut sowohl Backend
-  als auch Frontend neu und übergibt anschließend an einen frisch gestarteten
-  Prozess, bevor er sich beendet — die Seite verliert dabei kurz die
-  Verbindung und verbindet sich von selbst neu, sobald der neue Prozess
-  lauscht. Schlagen Pull oder Build fehl, bleibt alles unangetastet: der
-  aktuelle Prozess läuft unverändert weiter, und der Fehler erscheint im
-  Aktivitätsprotokoll, statt den Hub lahmzulegen.
+- **Externes Hub-Deployment**: Maintenance zeigt Commit, Build-Datum und den
+  extern verwalteten Status. Der Hub aktualisiert, installiert, baut oder
+  ersetzt sich niemals selbst. Bootstrap, Update und Rollback erfolgen mit
+  `deploy.py`.
 - **Automatische Host-Bereinigung**: eine tägliche Bereinigung verwaister
   Images (derselbe Vorgang, der bereits nach jedem Build läuft), damit die
   Bereinigung nicht davon abhängt, dass Sie sich daran erinnern, sie manuell
@@ -260,7 +249,7 @@ npm run dev:backend      # Fastify mit Reload, http://127.0.0.1:4000
 npm run dev:frontend     # Vite-Dev-Server, http://127.0.0.1:5173, leitet /api an das Backend weiter
 ```
 
-Produktionsnaher lokaler Betrieb:
+Integrierter lokaler Entwicklungsbetrieb:
 
 ```bash
 npm run build:backend
@@ -268,34 +257,22 @@ npm run build:frontend
 npm start                # liefert das gebaute Backend auf dem web.port aus config/manager.toml aus
 ```
 
-Der Hub selbst läuft als einfacher Node-Prozess auf dem Host, **nicht**
-innerhalb eines Containers — er benötigt direkten Zugriff auf die
-`podman`-Binary des Hosts sowie auf die Geschwisterverzeichnisse
-`arma_server`/`proyect_zomboid` als Build-Kontext, was sonst ein
-Podman-in-Podman-Socket-Mounting ohne echten Nutzen in dieser
-Größenordnung erfordern würde.
+Auf einem Server läuft der Hub als rootless Podman-Container unter einer
+Quadlet/systemd-Benutzereinheit. Eine private Image-Registry ist nicht nötig:
+`deploy.py` überträgt den Quellcode per SSH und baut auf dem Server ein lokal
+versioniertes Image.
 
-Es gibt keinen Prozessmanager, der ihn überwacht (keine systemd-Unit, kein
-pm2) — ihn zu stoppen bedeutet also, einfach einen normalen
-Vordergrundprozess zu stoppen:
+```bash
+cp deploy.example.toml deploy.toml
+python3 deploy.py dev --check
+python3 deploy.py dev
+python3 deploy.py prod --yes
+python3 deploy.py prod --rollback
+```
 
-- Läuft er in einem Terminal (`npm start`, `npm run dev:backend`):
-  `Strg+C` in diesem Terminal.
-- Läuft er im Hintergrund / ohne angeschlossenes Terminal: finden und
-  stoppen, was `web.port` (Standard 4000) geöffnet hält —
-  ```powershell
-  # Windows PowerShell
-  Get-NetTCPConnection -LocalPort 4000 -State Listen |
-    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-  ```
-  ```bash
-  # Linux/macOS
-  fuser -k 4000/tcp
-  ```
-  Die vom Hub verwalteten Instanzen laufen in jedem Fall weiter — das
-  Stoppen des Hubs beendet nur das Panel und dessen eigene
-  Wartungsautomatisierung (automatischer Neustart, geplante Neustarts,
-  Bereinigung), nicht die Spieleserver selbst.
+Die Game-Manager bleiben separate Voraussetzungen. Siehe das kanonische
+spanische [Bootstrap-/Migrations-/Rollback-Runbook](docs/runbooks/hub-bootstrap.md)
+und [ADR-002](docs/architecture/ADR-002-despliegue-externo-hub.md).
 
 ### Konfiguration
 

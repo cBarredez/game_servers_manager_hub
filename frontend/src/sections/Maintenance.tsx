@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  getHealth,
   getHubStatus,
   getImageStatus,
   getMaintenanceSettings,
   listMaintenanceLog,
   pullLatest,
   rebuildImage,
-  updateHub,
   updateMaintenanceSettings,
   type GameImageStatus,
   type HubUpdateStatus,
@@ -28,8 +26,6 @@ export function Maintenance() {
   const [rebuilding, setRebuilding] = useState<string | null>(null);
   const [pulling, setPulling] = useState<string | null>(null);
   const [hubStatus, setHubStatus] = useState<HubUpdateStatus | null>(null);
-  const [hubUpdating, setHubUpdating] = useState(false);
-  const [hubMessage, setHubMessage] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -53,15 +49,11 @@ export function Maintenance() {
     return () => clearInterval(interval);
   }, []);
 
-  // Kept on its own interval/try-catch, separate from refresh() above: while
-  // the hub is mid-restart this check will fail (connection reset), which
-  // is expected and shouldn't flip the page-wide error banner — doHubUpdate
-  // already shows a dedicated "restarting" message for that.
   const refreshHubStatus = async () => {
     try {
       setHubStatus(await getHubStatus());
     } catch {
-      // transient — most likely the hub is between "pulled" and "listening again"
+      // Supplementary deployment metadata; retain the last known value.
     }
   };
 
@@ -70,42 +62,6 @@ export function Maintenance() {
     const interval = setInterval(refreshHubStatus, 15_000);
     return () => clearInterval(interval);
   }, []);
-
-  const waitForHubRestart = async () => {
-    for (let attempt = 0; attempt < 30; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      try {
-        const health = await getHealth();
-        setHubMessage(`Hub restarted successfully on commit ${health.commit.slice(0, 10)}.`);
-        await refreshHubStatus();
-        return;
-      } catch {
-        // still restarting — keep polling
-      }
-    }
-    setHubMessage("Hub did not come back online within 60s after updating — check it manually.");
-  };
-
-  const doHubUpdate = async () => {
-    setHubUpdating(true);
-    setHubMessage(null);
-    try {
-      const result = await updateHub();
-      setHubMessage(result.message);
-      if (result.restarting) {
-        await waitForHubRestart();
-      } else {
-        await refreshHubStatus();
-      }
-    } catch {
-      // The connection drops the instant the hub closes its listener to
-      // restart, so a fetch error here is the expected/success path too.
-      setHubMessage("Hub is restarting…");
-      await waitForHubRestart();
-    } finally {
-      setHubUpdating(false);
-    }
-  };
 
   const saveSettings = async (patch: Partial<MaintenanceSettingsType>) => {
     if (!settings) return;
@@ -223,26 +179,12 @@ export function Maintenance() {
               <dd>
                 <code>{shortCommit(hubStatus?.currentCommit ?? null)}</code>
               </dd>
-              <dt>Latest on origin</dt>
-              <dd>
-                <code>{shortCommit(hubStatus?.remoteCommit ?? null)}</code>
-              </dd>
+              <dt>Built at</dt>
+              <dd>{formatBuiltAt(hubStatus?.buildDate ?? null)}</dd>
+              <dt>Deployment</dt>
+              <dd>External (deploy.py)</dd>
             </dl>
-            {hubStatus?.checkError && (
-              <p className="image-outdated-badge">Couldn't check for updates: {hubStatus.checkError}</p>
-            )}
-            {hubStatus?.updateAvailable && !hubStatus.checkError && (
-              <p className="image-outdated-badge">Update available</p>
-            )}
-            {hubMessage && <p className="maintenance-success">{hubMessage}</p>}
-            <div className="image-status-actions">
-              <button
-                disabled={hubUpdating || hubStatus?.updating || !hubStatus?.updateAvailable}
-                onClick={doHubUpdate}
-              >
-                {hubUpdating || hubStatus?.updating ? "Updating & restarting…" : "Update & restart hub"}
-              </button>
-            </div>
+            <p className="field-hint">{hubStatus?.message ?? "Hub updates are managed externally."}</p>
           </div>
         </div>
       </section>

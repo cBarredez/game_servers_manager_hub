@@ -1,0 +1,15 @@
+[dev]
+server = "192.168.1.20"
+username = "games"
+host_bind_ip = "127.0.0.1"
+host_port = 4000
+repos_root = "/home/games/game-managers"
+# Set only for a one-time migration from a host-process installation.
+# legacy_hub_root = "/home/games/game_servers_manager_hub"
+
+[prod]
+server = "203.0.113.20"
+username = "games"
+host_bind_ip = "127.0.0.1"
+host_port = 4000
+repos_root = "/home/games/game-managers"

@@ -51,7 +51,7 @@ as the Podman build context for every instance the hub creates.
   next time that instance is recreated.
 - Unattended maintenance: auto-restart on crash, opt-in daily scheduled
   restarts, source-update tracking with one-click image rebuild + instance
-  recreate, hub self-update, and daily dangling-image cleanup — see
+  recreate, externally managed hub deployment, and daily dangling-image cleanup — see
   [Maintenance](#maintenance) below.
 - Discovers compatible ARMA 3 deployments through the Server Manager v1
   contract and offers **in-place adoption** without copying containers,
@@ -61,10 +61,9 @@ as the Podman build context for every instance the hub creates.
 
 ## Maintenance
 
-A background scheduler (`infra/scheduler.ts`, ticks every 60s) drives most of
-the automatic behaviors below; source-update checks (both for game images
-and for the hub itself) are cheap enough to compute live on demand instead.
-All of it is configurable from the **Maintenance** tab:
+A background scheduler (`infra/scheduler.ts`, ticks every 60s) drives instance
+maintenance. Game-image source checks are computed live on demand. It is
+configurable from the **Maintenance** tab:
 
 - **Auto-restart on crash**: if an instance's containers stop unexpectedly
   while it's supposed to be running (i.e. nobody clicked Stop), the hub
@@ -102,17 +101,9 @@ All of it is configurable from the **Maintenance** tab:
   share a lock per game type so they can never run concurrently against the
   same working tree. **Limitation**: only detects committed changes to the
   sibling repos, not uncommitted local edits.
-- **Hub self-update**: separate from the image tracking above — this is the
-  hub's *own* source, not `arma_server`/`proyect_zomboid`. The Maintenance
-  tab shows whether the hub's git remote has commits the running hub doesn't
-  (`git fetch` + compare against `HEAD`). "Update & restart hub" runs
-  `git pull --ff-only`, `npm install` (only if a `package.json`/
-  `package-lock.json` actually changed), rebuilds both the backend and
-  frontend, then hands off to a freshly-spawned process and exits — the page
-  briefly loses connection during the handoff and reconnects on its own once
-  the new process is listening. If the pull or build fails, nothing is
-  touched: the current process keeps running exactly as before, and the
-  failure shows up in the activity log instead of taking the hub down.
+- **External hub deployment**: Maintenance shows the running commit, build
+  date and externally managed status. The hub never pulls, installs, builds
+  or replaces itself. Bootstrap, upgrades and rollback use `deploy.py`.
 - **Automated host cleanup**: a daily dangling-image prune (same operation
   already run after every build), so cleanup doesn't depend on you
   remembering to do it manually.
@@ -234,7 +225,7 @@ npm run dev:backend      # Fastify with reload, http://127.0.0.1:4000
 npm run dev:frontend     # Vite dev server, http://127.0.0.1:5173, proxies /api to the backend
 ```
 
-Production-ish local run:
+Integrated local development run:
 
 ```bash
 npm run build:backend
@@ -242,31 +233,21 @@ npm run build:frontend
 npm start                # serves the built backend on config/manager.toml's web.port
 ```
 
-The hub itself runs as a plain Node process on the host, **not** inside a
-container — it needs direct access to the host's `podman` binary and to the
-sibling `arma_server`/`proyect_zomboid` directories as build contexts, which
-would otherwise require Podman-in-Podman socket mounting for no real benefit
-at this scale.
+On a server, the hub runs as a rootless Podman container managed by a user
+Quadlet/systemd unit. No private image registry is required: `deploy.py`
+copies source over SSH and builds a versioned local image on the server.
 
-There's no process manager watching over it (no systemd unit, no pm2), so
-stopping it is whatever stops a plain foreground process:
+```bash
+cp deploy.example.toml deploy.toml
+python3 deploy.py dev --check
+python3 deploy.py dev
+python3 deploy.py prod --yes
+python3 deploy.py prod --rollback
+```
 
-- Running in a terminal (`npm start`, `npm run dev:backend`): `Ctrl+C` in
-  that terminal.
-- Running in the background / no terminal attached: find and stop whatever
-  has `web.port` (default 4000) open —
-  ```powershell
-  # Windows PowerShell
-  Get-NetTCPConnection -LocalPort 4000 -State Listen |
-    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-  ```
-  ```bash
-  # Linux/macOS
-  fuser -k 4000/tcp
-  ```
-  Instances the hub manages keep running either way — stopping the hub only
-  stops the panel and its own maintenance automation (auto-restart,
-  scheduled restarts, cleanup), not the game servers themselves.
+Game managers remain separate prerequisites. See the Spanish canonical
+[bootstrap, migration and rollback runbook](docs/runbooks/hub-bootstrap.md)
+and [ADR-002](docs/architecture/ADR-002-despliegue-externo-hub.md).
 
 ### Configuration
 

@@ -5,7 +5,7 @@ import type { AppConfig } from "./config/index.js";
 import type { SqliteStore } from "./infra/sqliteStore.js";
 import type { InstanceManager } from "./domain/instanceManager.js";
 import type { MaintenanceService } from "./domain/maintenanceService.js";
-import type { SelfUpdateService } from "./domain/selfUpdateService.js";
+import type { HubDeploymentService } from "./domain/deploymentService.js";
 import { registerAuthRoutes, requireAuth } from "./routes/auth.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerInstanceRoutes } from "./routes/instances.js";
@@ -16,9 +16,8 @@ export interface AppContext {
   store: SqliteStore;
   instances: InstanceManager;
   maintenance: MaintenanceService;
-  selfUpdate: SelfUpdateService;
-  /** Git commit of the hub's own source tree, resolved once at startup (server.ts) — the hub runs straight from source, not a discrete build artifact, so there's no separate build date to show. */
-  version: { commit: string };
+  deployment: HubDeploymentService;
+  version: { commit: string; buildDate: string | null; deploymentMode: "external" };
   /** Built frontend (frontend/dist) — served directly by this same process so `npm start` is self-sufficient, no separate static server needed. */
   frontendDistDir: string;
 }
@@ -31,7 +30,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   // performs the authenticated /api/* calls, so it must load before login.
   await app.register(staticPlugin, { root: ctx.frontendDistDir });
 
-  app.get("/api/health", async () => ({ status: "ok", commit: ctx.version.commit }));
+  app.get("/api/health", async () => ({ status: "ok", ...ctx.version }));
 
   await registerAuthRoutes(app, ctx);
 

@@ -62,7 +62,7 @@ crea el hub.
 - Mantenimiento desatendido: reinicio automático ante fallos, reinicios
   programados diarios opcionales, seguimiento de actualizaciones del código
   fuente con reconstrucción de imagen y recreación de instancia con un clic,
-  autoactualización del propio hub, y limpieza diaria de imágenes huérfanas
+  despliegue externo versionado del hub, y limpieza diaria de imágenes huérfanas
   — ver [Mantenimiento](#mantenimiento) más abajo.
 - Descubre despliegues compatibles de ARMA 3 mediante el contrato Server
   Manager v1 y ofrece **adopción en sitio** sin copiar contenedores,
@@ -73,11 +73,9 @@ crea el hub.
 ## Mantenimiento
 
 Un planificador en segundo plano (`infra/scheduler.ts`, se ejecuta cada 60s)
-gestiona la mayoría de los comportamientos automáticos siguientes; las
-comprobaciones de actualizaciones de código fuente (tanto de las imágenes de
-juego como del propio hub) son lo bastante baratas como para calcularse en
-vivo bajo demanda en su lugar. Todo es configurable desde la pestaña
-**Maintenance**:
+gestiona los comportamientos automáticos de las instancias. Las comprobaciones
+de las imágenes de juego se calculan en vivo bajo demanda. Todo es configurable
+desde la pestaña **Maintenance**:
 
 - **Reinicio automático ante fallos**: si los contenedores de una instancia
   se detienen inesperadamente mientras se supone que debería estar en
@@ -122,19 +120,10 @@ vivo bajo demanda en su lugar. Todo es configurable desde la pestaña
   a la vez sobre el mismo árbol de trabajo. **Limitación**: solo detecta
   cambios confirmados (committed) en los repos hermanos, no ediciones
   locales sin confirmar.
-- **Autoactualización del hub**: independiente del seguimiento de imágenes
-  de arriba — esto es el código fuente *propio* del hub, no el de
-  `arma_server`/`proyect_zomboid`. La pestaña Maintenance muestra si el
-  remoto de git del hub tiene commits que el hub en ejecución todavía no
-  tiene (`git fetch` + comparación contra `HEAD`). "Update & restart hub"
-  ejecuta `git pull --ff-only`, `npm install` (solo si realmente cambió
-  algún `package.json`/`package-lock.json`), reconstruye tanto el backend
-  como el frontend, y luego entrega el control a un proceso recién lanzado y
-  termina — la página pierde brevemente la conexión durante ese traspaso y
-  se reconecta sola en cuanto el nuevo proceso empieza a escuchar. Si el pull
-  o el build fallan, no se toca nada: el proceso actual sigue funcionando
-  exactamente igual que antes, y el fallo queda registrado en el log de
-  actividad en vez de tumbar el hub.
+- **Despliegue externo del hub**: Maintenance muestra el commit, la fecha de
+  build y que la actualización está administrada externamente. El hub nunca
+  ejecuta `git pull`, instala dependencias, construye ni reemplaza su propio
+  proceso. Bootstrap, actualización y rollback se realizan con `deploy.py`.
 - **Limpieza automática del host**: una purga diaria de imágenes huérfanas
   (la misma operación que ya se ejecuta tras cada compilación), para que la
   limpieza no dependa de que te acuerdes de hacerla manualmente.
@@ -260,7 +249,7 @@ npm run dev:backend      # Fastify con recarga, http://127.0.0.1:4000
 npm run dev:frontend     # servidor de desarrollo de Vite, http://127.0.0.1:5173, redirige /api al backend
 ```
 
-Ejecución local tipo producción:
+Ejecución local para desarrollo integrado:
 
 ```bash
 npm run build:backend
@@ -268,33 +257,22 @@ npm run build:frontend
 npm start                # sirve el backend compilado en el web.port de config/manager.toml
 ```
 
-El propio hub se ejecuta como un simple proceso Node en el host, **no**
-dentro de un contenedor — necesita acceso directo al binario `podman` del
-host y a los directorios hermanos `arma_server`/`proyect_zomboid` como
-contexto de compilación, lo que de otro modo requeriría montar el socket de
-Podman dentro de Podman sin ningún beneficio real a esta escala.
+En servidores, el hub se despliega como un contenedor Podman rootless
+administrado por Quadlet/systemd de usuario. No descarga una imagen propia de
+un registry: `deploy.py` transfiere el código por SSH y construye una imagen
+local versionada en el servidor.
 
-No hay ningún gestor de procesos vigilándolo (sin unidad de systemd, sin
-pm2), así que detenerlo es lo mismo que detener cualquier proceso en
-primer plano:
+```bash
+cp deploy.example.toml deploy.toml
+python3 deploy.py dev --check
+python3 deploy.py dev
+python3 deploy.py prod --yes
+python3 deploy.py prod --rollback
+```
 
-- Si se ejecuta en una terminal (`npm start`, `npm run dev:backend`):
-  `Ctrl+C` en esa terminal.
-- Si se ejecuta en segundo plano / sin terminal asociada: hay que
-  encontrar y detener lo que tenga abierto `web.port` (por defecto 4000) —
-  ```powershell
-  # Windows PowerShell
-  Get-NetTCPConnection -LocalPort 4000 -State Listen |
-    ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
-  ```
-  ```bash
-  # Linux/macOS
-  fuser -k 4000/tcp
-  ```
-  Las instancias que gestiona el hub siguen ejecutándose de todos modos —
-  detener el hub solo detiene el panel y su propio mantenimiento automático
-  (reinicio ante fallos, reinicios programados, limpieza), no los propios
-  servidores de juego.
+Los managers de juego se instalan por separado. Consulta el
+[runbook canónico de bootstrap, migración y rollback](docs/runbooks/hub-bootstrap.md)
+y [ADR-002](docs/architecture/ADR-002-despliegue-externo-hub.md).
 
 ### Configuración
 

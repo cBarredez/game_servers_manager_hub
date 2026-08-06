@@ -7,6 +7,10 @@ build/
 !.env.example
 
 config/manager.secrets.toml
+deploy.toml
+
+__pycache__/
+*.py[cod]
 
 data/
 *.sqlite3
